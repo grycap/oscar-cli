@@ -20,26 +20,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func serviceFunc(cmd *cobra.Command, args []string) {
+func serviceLogsFunc(cmd *cobra.Command, args []string) {
 	cmd.Help()
 }
 
-func makeServiceCmd() *cobra.Command {
-	serviceCmd := &cobra.Command{
-		Use:     "service",
+func makeServiceLogsCmd() *cobra.Command {
+	serviceLogsCmd := &cobra.Command{
+		Use:     "logs",
 		Short:   "Manages the services within a cluster",
 		Args:    cobra.NoArgs,
-		Aliases: []string{"services", "svc", "s"},
-		Run:     serviceFunc,
+		Aliases: []string{"log", "l"},
+		Run:     serviceLogsFunc,
 	}
 
-	serviceCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
+	serviceLogsCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
+	serviceLogsCmd.PersistentFlags().StringP("cluster", "c", "", "set the cluster")
 
 	// Add subcommands
-	serviceCmd.AddCommand(makeServiceGetCmd())
-	serviceCmd.AddCommand(makeServiceListCmd())
-	serviceCmd.AddCommand(makeServiceRemoveCmd())
-	serviceCmd.AddCommand(makeServiceLogsCmd())
+	serviceLogsCmd.AddCommand(makeServiceLogsGetCmd())
+	serviceLogsCmd.AddCommand(makeServiceLogsListCmd())
+	serviceLogsCmd.AddCommand(makeServiceLogsRemoveCmd())
 
-	return serviceCmd
+	return serviceLogsCmd
 }
