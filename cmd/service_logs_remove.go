@@ -67,16 +67,21 @@ func serviceLogsRemoveFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func checkServiceLogsArgs(cmd *cobra.Command, args []string) error {
+func checkServiceLogsRemoveArgs(cmd *cobra.Command, args []string) error {
+	err := cobra.MinimumNArgs(1)(cmd, args)
+	if err != nil {
+		return err
+	}
+
 	all, _ := cmd.Flags().GetBool("all")
 	succeeded, _ := cmd.Flags().GetBool("succeeded")
 
-	if all || succeeded {
-		return cobra.ExactArgs(1)(cmd, args)
-	}
-
 	if all && succeeded {
 		return errors.New("only one of \"--all\" or \"--succeeded\" flags can be set")
+	}
+
+	if all || succeeded {
+		return cobra.ExactArgs(1)(cmd, args)
 	}
 
 	return cobra.MinimumNArgs(2)(cmd, args)
@@ -86,7 +91,7 @@ func makeServiceLogsRemoveCmd() *cobra.Command {
 	serviceLogsRemoveCmd := &cobra.Command{
 		Use:     "remove SERVICE_NAME {JOB_NAME... | --succeeded | --all}",
 		Short:   "List the logs from a service",
-		Args:    checkServiceLogsArgs,
+		Args:    checkServiceLogsRemoveArgs,
 		Aliases: []string{"rm"},
 		RunE:    serviceLogsRemoveFunc,
 	}
