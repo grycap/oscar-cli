@@ -64,7 +64,7 @@ func serviceListFunc(cmd *cobra.Command, args []string) error {
 func makeServiceListCmd() *cobra.Command {
 	serviceListCmd := &cobra.Command{
 		Use:     "list",
-		Short:   "Get the definition of a service",
+		Short:   "List the available services in a cluster",
 		Args:    cobra.NoArgs,
 		Aliases: []string{"ls"},
 		RunE:    serviceListFunc,
