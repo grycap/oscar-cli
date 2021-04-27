@@ -40,6 +40,9 @@ func makeServiceCmd() *cobra.Command {
 	serviceCmd.AddCommand(makeServiceListCmd())
 	serviceCmd.AddCommand(makeServiceRemoveCmd())
 	serviceCmd.AddCommand(makeServiceLogsCmd())
+	serviceCmd.AddCommand(makeServiceGetFileCmd())
+	serviceCmd.AddCommand(makeServicePutFileCmd())
+	serviceCmd.AddCommand(makeServiceListFilesCmd())
 
 	return serviceCmd
 }
