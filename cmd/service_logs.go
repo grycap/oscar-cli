@@ -27,7 +27,7 @@ func serviceLogsFunc(cmd *cobra.Command, args []string) {
 func makeServiceLogsCmd() *cobra.Command {
 	serviceLogsCmd := &cobra.Command{
 		Use:     "logs",
-		Short:   "Manages the services within a cluster",
+		Short:   "Manages the logs from a service",
 		Args:    cobra.NoArgs,
 		Aliases: []string{"log", "l"},
 		Run:     serviceLogsFunc,

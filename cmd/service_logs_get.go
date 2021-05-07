@@ -51,7 +51,7 @@ func serviceLogsGetFunc(cmd *cobra.Command, args []string) error {
 func makeServiceLogsGetCmd() *cobra.Command {
 	serviceLogsGetCmd := &cobra.Command{
 		Use:     "get SERVICE_NAME JOB_NAME",
-		Short:   "Get the logs from a service",
+		Short:   "Get the logs from a service's job",
 		Args:    cobra.ExactArgs(2),
 		Aliases: []string{"g"},
 		RunE:    serviceLogsGetFunc,
