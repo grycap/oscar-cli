@@ -42,11 +42,15 @@ func serviceGetFileFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// TODO: document STORAGE_PROVIDER identifier format (<STORAGE_PROVIDER_TYPE>.<STORAGE_PROVIDER_NAME>)
 func makeServiceGetFileCmd() *cobra.Command {
 	serviceGetFileCmd := &cobra.Command{
-		Use:     "get-file SERVICE_NAME STORAGE_PROVIDER REMOTE_FILE LOCAL_FILE",
-		Short:   "Get a file from a service's storage provider",
+		Use:   "get-file SERVICE_NAME STORAGE_PROVIDER REMOTE_FILE LOCAL_FILE",
+		Short: "Get a file from a service's storage provider",
+		Long: `Get a file from a service's storage provider.
+
+The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
+being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
+and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.`,
 		Args:    cobra.ExactArgs(4),
 		Aliases: []string{"gf"},
 		RunE:    serviceGetFileFunc,

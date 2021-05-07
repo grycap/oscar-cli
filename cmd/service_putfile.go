@@ -42,11 +42,15 @@ func servicePutFileFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// TODO: document STORAGE_PROVIDER identifier format (<STORAGE_PROVIDER_TYPE>.<STORAGE_PROVIDER_NAME>)
 func makeServicePutFileCmd() *cobra.Command {
 	servicePutFileCmd := &cobra.Command{
-		Use:     "put-file SERVICE_NAME STORAGE_PROVIDER LOCAL_FILE REMOTE_FILE",
-		Short:   "Put a file in a service's storage provider",
+		Use:   "put-file SERVICE_NAME STORAGE_PROVIDER LOCAL_FILE REMOTE_FILE",
+		Short: "Put a file in a service's storage provider",
+		Long: `Put a file in a service's storage provider.
+		
+The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
+being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
+and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.`,
 		Args:    cobra.ExactArgs(4),
 		Aliases: []string{"pf"},
 		RunE:    servicePutFileFunc,

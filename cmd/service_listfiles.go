@@ -48,13 +48,17 @@ func serviceListFilesFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// TODO: document STORAGE_PROVIDER identifier format (<STORAGE_PROVIDER_TYPE>.<STORAGE_PROVIDER_NAME>)
 func makeServiceListFilesCmd() *cobra.Command {
 	serviceListFilesCmd := &cobra.Command{
-		Use:     "list-files SERVICE_NAME STORAGE_PROVIDER REMOTE_PATH",
-		Short:   "List files from a service's storage provider path",
+		Use:   "list-files SERVICE_NAME STORAGE_PROVIDER REMOTE_PATH",
+		Short: "List files from a service's storage provider path",
+		Long: `List files from a service's storage provider path.
+
+The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
+being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
+and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.`,
 		Args:    cobra.ExactArgs(3),
-		Aliases: []string{"list-files", "lsf"},
+		Aliases: []string{"list-file", "lsf"},
 		RunE:    serviceListFilesFunc,
 	}
 

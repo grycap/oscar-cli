@@ -32,8 +32,6 @@ import (
 	"github.com/grycap/oscar/v2/pkg/types"
 )
 
-// TODO: implement!!
-
 func getProvider(providerString string, providers *types.StorageProviders) (interface{}, error) {
 	if providerString == "minio" {
 		providerString = "minio.default"
@@ -191,7 +189,6 @@ func PutFile(c *cluster.Cluster, svcName, providerString, localPath, remotePath 
 	return nil
 }
 
-// TODO: implement
 // ListFiles list files from a storage provider
 func ListFiles(c *cluster.Cluster, svcName, providerString, remotePath string) (list []string, err error) {
 	// Get the service definition
