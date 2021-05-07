@@ -60,7 +60,7 @@ func makeClusterDefaultCmd() *cobra.Command {
 		RunE:    clusterDefaultFunc,
 	}
 
-	clusterDefaultCmd.Flags().String("set", "", "set a default cluster by passing its IDENTIFIER")
+	clusterDefaultCmd.Flags().StringP("set", "s", "", "set a default cluster by passing its IDENTIFIER")
 
 	return clusterDefaultCmd
 }
