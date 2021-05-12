@@ -146,14 +146,16 @@ jobs:
     steps:
     - name: Download jobs' artifacts
       uses: actions/download-artifact@v2
+      with:
+        path: bin
     - name: Upload artifacts to release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          oscar-cli
-          oscar-cli-arm64
-          oscar-cli.exe
-          oscar-cli-darwin
-          oscar-cli-darwin-arm64
+          bin/oscar-cli
+          bin/oscar-cli-arm64
+          bin/oscar-cli.exe
+          bin/oscar-cli-darwin
+          bin/oscar-cli-darwin-arm64
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
