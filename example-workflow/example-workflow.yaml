@@ -1,0 +1,27 @@
+functions:
+  oscar:
+  - oscar-test:
+      name: plants
+      memory: 2Gi
+      cpu: '1.0'
+      image: grycap/oscar-theano-plants
+      script: plants.sh
+      input:
+      - storage_provider: minio.default
+        path: example-workflow/in
+      output:
+      - storage_provider: minio.default
+        path: example-workflow/med
+  - oscar-test:
+      name: grayify
+      memory: 1Gi
+      cpu: '1.0'
+      image: grycap/imagemagick
+      script: grayify.sh
+      input:
+      - storage_provider: minio.default
+        path: example-workflow/med
+      output:
+      - storage_provider: minio.default
+        path: example-workflow/res
+

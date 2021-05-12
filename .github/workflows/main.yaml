@@ -1,0 +1,159 @@
+name: build
+
+on:
+  push:
+   branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  release:
+    types: [created]
+
+jobs:
+  build-linux-amd64:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Setup go
+      uses: actions/setup-go@v2
+      with:
+        go-version:  1.16
+    - name: build
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        fi
+
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build --ldflags "-s -w \
+        -X \"github.com/grycap/oscar-cli/cmd.Version=${VERSION}\" \
+        -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
+        -a -installsuffix cgo -o oscar-cli .
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: oscar-cli
+        path: oscar-cli
+
+  build-linux-arm64:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Setup go
+      uses: actions/setup-go@v2
+      with:
+        go-version:  1.16
+    - name: build
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        fi
+
+        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build --ldflags "-s -w \
+        -X \"github.com/grycap/oscar-cli/cmd.Version=${VERSION}\" \
+        -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
+        -a -installsuffix cgo -o oscar-cli-arm64 .
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: oscar-cli-arm64
+        path: oscar-cli-arm64
+
+  build-windows:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Setup go
+      uses: actions/setup-go@v2
+      with:
+        go-version:  1.16
+    - name: build
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        fi
+
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build --ldflags "-s -w \
+        -X \"github.com/grycap/oscar-cli/cmd.Version=${VERSION}\" \
+        -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
+        -a -installsuffix cgo -o oscar-cli.exe .
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: oscar-cli.exe
+        path: oscar-cli.exe
+
+  build-darwin:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Setup go
+      uses: actions/setup-go@v2
+      with:
+        go-version:  1.16
+    - name: build
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        fi
+
+        GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build --ldflags "-s -w \
+        -X \"github.com/grycap/oscar-cli/cmd.Version=${VERSION}\" \
+        -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
+        -a -installsuffix cgo -o oscar-cli-darwin .
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: oscar-cli-darwin
+        path: oscar-cli-darwin
+
+  build-darwin-arm64:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Setup go
+      uses: actions/setup-go@v2
+      with:
+        go-version:  1.16
+    - name: build
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        fi
+
+        GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build --ldflags "-s -w \
+        -X \"github.com/grycap/oscar-cli/cmd.Version=${VERSION}\" \
+        -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
+        -a -installsuffix cgo -o oscar-cli-darwin-arm64 .
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: oscar-cli-darwin-arm64
+        path: oscar-cli-darwin-arm64
+
+  release:
+    needs:
+    - build-linux-amd64
+    - build-linux-arm64
+    - build-windows
+    - build-darwin
+    - build-darwin-arm64
+    if: github.event_name == 'release'
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Download jobs' artifacts
+      uses: actions/download-artifact@v2
+    - name: Upload artifacts to release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          oscar-cli
+          oscar-cli-arm64
+          oscar-cli.exe
+          oscar-cli-darwin
+          oscar-cli-darwin-arm64
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

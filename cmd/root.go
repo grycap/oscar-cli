@@ -44,6 +44,7 @@ func runFunc(cmd *cobra.Command, args []string) {
 	cmd.Help()
 }
 
+// Execute function to launch the root command
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
