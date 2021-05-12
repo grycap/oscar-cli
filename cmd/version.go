@@ -23,7 +23,9 @@ import (
 )
 
 var (
-	Version   string
+	// Version string variable to store the version of oscar-cli
+	Version string
+	// GitCommit string variable to store the git commit of the current oscar-cli build
 	GitCommit string
 )
 

@@ -33,9 +33,12 @@ import (
 const infoPath = "/system/info"
 
 var (
+	// ErrParsingEndpoint error message for cluster endpoint parsing
 	ErrParsingEndpoint = errors.New("error parsing the cluster endpoint, please check that you have typed it correctly")
-	ErrMakingRequest   = errors.New("error making the request")
-	ErrSendingRequest  = errors.New("error sending the request")
+	// ErrMakingRequest error message for making requests
+	ErrMakingRequest = errors.New("error making the request")
+	// ErrSendingRequest error message for sending requests
+	ErrSendingRequest = errors.New("error sending the request")
 )
 
 // Cluster defines the configuration of an OSCAR cluster

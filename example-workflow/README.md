@@ -48,5 +48,5 @@ Once the job has finished, its status will change to "Succeeded" and an output f
 Finally, when the grayify service's job ends the execution, the result of the workflow will be stored in the `res` folder of the same bucket. You can download the resulting file by executing:
 
 ```
-oscar-cli service get-file plants minio.default example-workflow/res/image.jpg result.jpg
+oscar-cli service get-file grayify minio.default example-workflow/res/image.jpg result.jpg
 ```
