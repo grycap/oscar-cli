@@ -31,13 +31,13 @@ const logsPath = "/system/logs"
 
 // ListLogs returns a map with all the available logs from the given service
 func ListLogs(c *cluster.Cluster, name string) (logMap map[string]*types.JobInfo, err error) {
-	listLogsUrl, err := url.Parse(c.Endpoint)
+	listLogsURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return logMap, cluster.ErrParsingEndpoint
 	}
-	listLogsUrl.Path = path.Join(listLogsUrl.Path, logsPath, name)
+	listLogsURL.Path = path.Join(listLogsURL.Path, logsPath, name)
 
-	req, err := http.NewRequest(http.MethodGet, listLogsUrl.String(), nil)
+	req, err := http.NewRequest(http.MethodGet, listLogsURL.String(), nil)
 	if err != nil {
 		return logMap, cluster.ErrMakingRequest
 	}
@@ -63,19 +63,19 @@ func ListLogs(c *cluster.Cluster, name string) (logMap map[string]*types.JobInfo
 
 // GetLogs get the logs from a service's job
 func GetLogs(c *cluster.Cluster, svcName string, jobName string, timestamps bool) (logs string, err error) {
-	getLogsUrl, err := url.Parse(c.Endpoint)
+	getLogsURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return logs, cluster.ErrParsingEndpoint
 	}
-	getLogsUrl.Path = path.Join(getLogsUrl.Path, logsPath, svcName, jobName)
+	getLogsURL.Path = path.Join(getLogsURL.Path, logsPath, svcName, jobName)
 
 	if timestamps {
-		q := getLogsUrl.Query()
+		q := getLogsURL.Query()
 		q.Set("timestamps", "true")
-		getLogsUrl.RawQuery = q.Encode()
+		getLogsURL.RawQuery = q.Encode()
 	}
 
-	req, err := http.NewRequest(http.MethodGet, getLogsUrl.String(), nil)
+	req, err := http.NewRequest(http.MethodGet, getLogsURL.String(), nil)
 	if err != nil {
 		return logs, cluster.ErrMakingRequest
 	}
@@ -101,13 +101,13 @@ func GetLogs(c *cluster.Cluster, svcName string, jobName string, timestamps bool
 
 // RemoveLog removes the specified log (jobName) from a service in the cluster
 func RemoveLog(c *cluster.Cluster, svcName, jobName string) error {
-	removeLogUrl, err := url.Parse(c.Endpoint)
+	removeLogURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return cluster.ErrParsingEndpoint
 	}
-	removeLogUrl.Path = path.Join(removeLogUrl.Path, logsPath, svcName, jobName)
+	removeLogURL.Path = path.Join(removeLogURL.Path, logsPath, svcName, jobName)
 
-	req, err := http.NewRequest(http.MethodDelete, removeLogUrl.String(), nil)
+	req, err := http.NewRequest(http.MethodDelete, removeLogURL.String(), nil)
 	if err != nil {
 		return cluster.ErrMakingRequest
 	}
@@ -127,19 +127,19 @@ func RemoveLog(c *cluster.Cluster, svcName, jobName string) error {
 
 // RemoveLogs removes completed or all logs (jobs) from a service in the cluster
 func RemoveLogs(c *cluster.Cluster, svcName string, all bool) error {
-	removeLogsUrl, err := url.Parse(c.Endpoint)
+	removeLogsURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return cluster.ErrParsingEndpoint
 	}
-	removeLogsUrl.Path = path.Join(removeLogsUrl.Path, logsPath, svcName)
+	removeLogsURL.Path = path.Join(removeLogsURL.Path, logsPath, svcName)
 
 	if all {
-		q := removeLogsUrl.Query()
+		q := removeLogsURL.Query()
 		q.Set("all", "true")
-		removeLogsUrl.RawQuery = q.Encode()
+		removeLogsURL.RawQuery = q.Encode()
 	}
 
-	req, err := http.NewRequest(http.MethodDelete, removeLogsUrl.String(), nil)
+	req, err := http.NewRequest(http.MethodDelete, removeLogsURL.String(), nil)
 	if err != nil {
 		return cluster.ErrMakingRequest
 	}

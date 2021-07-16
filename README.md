@@ -34,6 +34,7 @@ go get github.com/grycap/oscar-cli
     - [get](#get)
     - [list](#list-1)
     - [remove](#remove-1)
+    - [run](#run)
     - [logs list](#logs-list)
     - [logs get](#logs-get)
     - [logs remove](#logs-remove)
@@ -217,6 +218,28 @@ Aliases:
 Flags:
   -c, --cluster string   set the cluster
   -h, --help             help for remove
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
+
+##### run
+
+Invoke a service synchronously (a Serverless backend in the cluster is required).
+
+```
+Usage:
+  oscar-cli service run SERVICE_NAME {--input | --text-input} [flags]
+
+Aliases:
+  run, invoke, r
+
+Flags:
+  -c, --cluster string      set the cluster
+  -h, --help                help for run
+  -i, --input string        input file for the request
+  -o, --output string       file path to store the output
+  -t, --text-input string   text input string for the request
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)

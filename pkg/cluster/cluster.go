@@ -85,13 +85,13 @@ func (cluster *Cluster) GetClient() *http.Client {
 
 // GetClusterInfo returns info from an OSCAR cluster
 func (cluster *Cluster) GetClusterInfo() (info types.Info, err error) {
-	getInfoUrl, err := url.Parse(cluster.Endpoint)
+	getInfoURL, err := url.Parse(cluster.Endpoint)
 	if err != nil {
 		return info, ErrParsingEndpoint
 	}
-	getInfoUrl.Path = path.Join(getInfoUrl.Path, infoPath)
+	getInfoURL.Path = path.Join(getInfoURL.Path, infoPath)
 
-	req, err := http.NewRequest(http.MethodGet, getInfoUrl.String(), nil)
+	req, err := http.NewRequest(http.MethodGet, getInfoURL.String(), nil)
 	if err != nil {
 		return info, ErrMakingRequest
 	}

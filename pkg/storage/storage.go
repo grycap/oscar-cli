@@ -220,7 +220,7 @@ func ListFiles(c *cluster.Cluster, svcName, providerString, remotePath string) (
 			return list, err
 		}
 		for _, obj := range res.Contents {
-			list = append(list, strings.Trim(*obj.Key, fmt.Sprintf("%s/", splitPath[1])))
+			list = append(list, strings.TrimPrefix(*obj.Key, fmt.Sprintf("%s/", splitPath[1])))
 		}
 	case *types.MinIOProvider:
 		// Repeat s3 code for correct type assertion
@@ -232,7 +232,7 @@ func ListFiles(c *cluster.Cluster, svcName, providerString, remotePath string) (
 			return list, err
 		}
 		for _, obj := range res.Contents {
-			list = append(list, strings.Trim(*obj.Key, fmt.Sprintf("%s/", splitPath[1])))
+			list = append(list, strings.TrimPrefix(*obj.Key, fmt.Sprintf("%s/", splitPath[1])))
 		}
 	case *types.OnedataProvider:
 		remotePath = path.Join(v.Space, remotePath)
