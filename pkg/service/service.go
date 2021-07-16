@@ -21,10 +21,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/grycap/oscar-cli/pkg/cluster"
@@ -32,6 +34,7 @@ import (
 )
 
 const servicesPath = "/system/services"
+const runPath = "/run"
 
 // FDL represents a Functions Definition Language file
 type FDL struct {
@@ -77,13 +80,13 @@ func ReadFDL(path string) (fdl *FDL, err error) {
 
 // GetService gets a service from a cluster
 func GetService(c *cluster.Cluster, name string) (svc *types.Service, err error) {
-	getServiceUrl, err := url.Parse(c.Endpoint)
+	getServiceURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return svc, cluster.ErrParsingEndpoint
 	}
-	getServiceUrl.Path = path.Join(getServiceUrl.Path, servicesPath, name)
+	getServiceURL.Path = path.Join(getServiceURL.Path, servicesPath, name)
 
-	req, err := http.NewRequest(http.MethodGet, getServiceUrl.String(), nil)
+	req, err := http.NewRequest(http.MethodGet, getServiceURL.String(), nil)
 	if err != nil {
 		return svc, cluster.ErrMakingRequest
 	}
@@ -109,13 +112,13 @@ func GetService(c *cluster.Cluster, name string) (svc *types.Service, err error)
 
 // ListServices gets a service from a cluster
 func ListServices(c *cluster.Cluster) (svcList []*types.Service, err error) {
-	getServicesUrl, err := url.Parse(c.Endpoint)
+	getServicesURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return svcList, cluster.ErrParsingEndpoint
 	}
-	getServicesUrl.Path = path.Join(getServicesUrl.Path, servicesPath)
+	getServicesURL.Path = path.Join(getServicesURL.Path, servicesPath)
 
-	req, err := http.NewRequest(http.MethodGet, getServicesUrl.String(), nil)
+	req, err := http.NewRequest(http.MethodGet, getServicesURL.String(), nil)
 	if err != nil {
 		return svcList, cluster.ErrMakingRequest
 	}
@@ -141,13 +144,13 @@ func ListServices(c *cluster.Cluster) (svcList []*types.Service, err error) {
 
 // RemoveService removes a service from a cluster
 func RemoveService(c *cluster.Cluster, name string) error {
-	removeServiceUrl, err := url.Parse(c.Endpoint)
+	removeServiceURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return cluster.ErrParsingEndpoint
 	}
-	removeServiceUrl.Path = path.Join(removeServiceUrl.Path, servicesPath, name)
+	removeServiceURL.Path = path.Join(removeServiceURL.Path, servicesPath, name)
 
-	req, err := http.NewRequest(http.MethodDelete, removeServiceUrl.String(), nil)
+	req, err := http.NewRequest(http.MethodDelete, removeServiceURL.String(), nil)
 	if err != nil {
 		return cluster.ErrMakingRequest
 	}
@@ -172,11 +175,11 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 		return errors.New("invalid method")
 	}
 
-	applyServiceUrl, err := url.Parse(c.Endpoint)
+	applyServiceURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return cluster.ErrParsingEndpoint
 	}
-	applyServiceUrl.Path = path.Join(applyServiceUrl.Path, servicesPath)
+	applyServiceURL.Path = path.Join(applyServiceURL.Path, servicesPath)
 
 	// Marshal service
 	svcBytes, err := json.Marshal(svc)
@@ -186,7 +189,7 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 	reqBody := bytes.NewBuffer(svcBytes)
 
 	// Make the request
-	req, err := http.NewRequest(method, applyServiceUrl.String(), reqBody)
+	req, err := http.NewRequest(method, applyServiceURL.String(), reqBody)
 	if err != nil {
 		return cluster.ErrMakingRequest
 	}
@@ -202,4 +205,35 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 	}
 
 	return nil
+}
+
+// RunService invokes a service synchronously (a Serverless backend in the cluster is required)
+func RunService(c *cluster.Cluster, name string, input io.Reader) (responseBody io.ReadCloser, err error) {
+
+	runServiceURL, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return nil, cluster.ErrParsingEndpoint
+	}
+	runServiceURL.Path = path.Join(runServiceURL.Path, runPath, name)
+
+	// Make the request
+	req, err := http.NewRequest(http.MethodPost, runServiceURL.String(), input)
+	if err != nil {
+		return nil, cluster.ErrMakingRequest
+	}
+
+	// Update cluster client timeout
+	client := c.GetClient()
+	client.Timeout = time.Second * 300
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, cluster.ErrSendingRequest
+	}
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return nil, err
+	}
+
+	return res.Body, nil
 }
