@@ -15,7 +15,7 @@ The easy way to download OSCAR-CLI is through the github [releases page](https:/
 
 ### Install from source
 
-If you have [go](https://golang.org/doc/install) installed, you can get it from source directly by executing:
+If you have [go](https://golang.org/doc/install) installed and [configured](https://github.com/golang/go/wiki/SettingGOPATH), you can get it from source directly by executing:
 
 ```sh
 go get github.com/grycap/oscar-cli
