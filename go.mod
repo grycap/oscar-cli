@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/aws/aws-sdk-go v1.40.48
-	github.com/briandowns/spinner v1.16.0
+	github.com/briandowns/spinner v1.15.0
 	github.com/fatih/color v1.13.0
 	github.com/go-logr/logr v1.1.0 // indirect
 	github.com/goccy/go-yaml v1.9.3
