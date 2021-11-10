@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 
 	"github.com/grycap/oscar-cli/pkg/config"
@@ -86,26 +87,61 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 	}
 	defer resBody.Close()
 
+	// Create temp file to store the result body
+	tmpfile, err := ioutil.TempFile("", "")
+	defer os.Remove(tmpfile.Name())
+	defer tmpfile.Close()
+	if err != nil {
+		return errors.New("unable to create a temporary file to store the result")
+	}
+	_, err = io.Copy(tmpfile, resBody)
+	if err != nil {
+		return errors.New("unable to copy the response")
+	}
+
 	// Decode the result body
-	decoder := base64.NewDecoder(base64.StdEncoding, resBody)
+	tmpfile.Seek(0, 0)
+	decoder := base64.NewDecoder(base64.StdEncoding, tmpfile)
 
 	// Parse output (store file if --output is set)
-	var out io.Writer = os.Stdout
+	var out *os.File
 
-	// Create the file if --output is set
 	if outputFile != "" {
-		outFile, err := os.Create(outputFile)
+		// Create the file if --output is set
+		out, err = os.Create(outputFile)
 		if err != nil {
 			return fmt.Errorf("unable to create the file \"%s\"", outputFile)
 		}
-		defer outFile.Close()
-		out = outFile
+	} else {
+		// Create a temporary file
+		out, err = ioutil.TempFile("", "")
+		if err != nil {
+			return errors.New("unable to create a temporary file to decode the result")
+		}
+		defer os.Remove(out.Name())
 	}
+	defer out.Close()
 
 	// Copy the decoder stream into out
 	_, err = io.Copy(out, decoder)
 	if err != nil {
-		return errors.New("unable to copy the response")
+		// If resBody can't be decoded copy it directly
+		// Seek tmpfile and out to start from the beginning
+		tmpfile.Seek(0, 0)
+		out.Seek(0, 0)
+		_, err = io.Copy(out, tmpfile)
+		if err != nil {
+			return errors.New("unable to copy the response")
+		}
+	}
+
+	if outputFile == "" {
+		// Copy out to stdout
+		out.Seek(0, 0)
+		_, err = io.Copy(os.Stdout, out)
+		if err != nil {
+			return errors.New("unable to print the result")
+		}
 	}
 
 	return nil
