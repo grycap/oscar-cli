@@ -1,11 +1,11 @@
-![OSCAR-CLI logo](img/oscar-cli.png)
+![OSCAR-CLI logo](images/oscar-cli.png)
 
 [![build](https://github.com/grycap/oscar-cli/actions/workflows/main.yaml/badge.svg)](https://github.com/grycap/oscar-cli/actions/workflows/main.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/grycap/oscar-cli)](https://goreportcard.com/report/github.com/grycap/oscar-cli)
 [![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat)](https://pkg.go.dev/github.com/grycap/oscar-cli)
 [![License](https://img.shields.io/github/license/grycap/oscar-cli)](https://github.com/grycap/oscar-cli/blob/main/LICENSE)
 
-OSCAR-CLI provides a command line interface to interact with [OSCAR](https://github.com/grycap/oscar) clusters in a simple way. It supports service management, workflows definition from FDL (Functions Definition Language) files and the ability to manage files from OSCAR's compatible storage providers (MinIO, AWS S3 and Onedata). The folder [`example-workflow`](example-workflow/) contains all the necessary files to create a simple workflow to test the tool.
+OSCAR-CLI provides a command line interface to interact with [OSCAR](https://github.com/grycap/oscar) clusters in a simple way. It supports service management, workflows definition from FDL (Functions Definition Language) files and the ability to manage files from OSCAR's compatible storage providers (MinIO, AWS S3 and Onedata). The folder [`example-workflow`](https://github.com/grycap/oscar-cli/tree/main/example-workflow) contains all the necessary files to create a simple workflow to test the tool.
 
 ## Download
 

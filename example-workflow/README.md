@@ -3,7 +3,7 @@
 
 This workflow is composed by the [plant-classification](https://github.com/grycap/oscar/tree/master/examples/plant-classification-theano) and the [grayify (ImageMagick)](https://github.com/grycap/oscar/tree/master/examples/imagemagick) examples.
 
-![example workflow](../img/oscar-cli-example.png)
+![example workflow](../images/oscar-cli-example.png)
 
 In the `example-workflow.yaml` file you can find the definition of the two OSCAR services and its connection via a MinIO bucket. As can be seen, the identifier used for the OSCAR cluster in the workflow definition is `oscar-test`, so firstly you must add a pre-deployed cluster (deployment instructions can be found [here](https://grycap.github.io/oscar)) with the same identifier (or change the identifier in the definition file):
 
