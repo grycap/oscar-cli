@@ -38,7 +38,7 @@ var (
 	// ErrMakingRequest error message for making requests
 	ErrMakingRequest = errors.New("error making the request")
 	// ErrSendingRequest error message for sending requests
-	ErrSendingRequest = errors.New("error sending the request")
+	ErrSendingRequest = errors.New("unable to communicate with the cluster, please check that the endpoint is well typed and accessible")
 )
 
 // Cluster defines the configuration of an OSCAR cluster
