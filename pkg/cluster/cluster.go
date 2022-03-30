@@ -123,6 +123,9 @@ func CheckStatusCode(res *http.Response) error {
 	if res.StatusCode == 404 {
 		return errors.New("not found")
 	}
+	if res.StatusCode == 502 {
+		return errors.New("the service is not ready yet, please wait until it's ready or check the if something failed")
+	}
 	// Create an error from the failed response body
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
