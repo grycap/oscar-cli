@@ -93,11 +93,19 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 			s.Start()
 
 			// Add (and overwrite) clusters
+			if svc.Clusters == nil {
+				// Initialize map
+				svc.Clusters = map[string]types.Cluster{}
+			}
 			for cn, c := range clusters {
 				svc.Clusters[cn] = c
 			}
 
 			// Add (and overwrite) MinIO providers
+			if svc.StorageProviders.MinIO == nil {
+				// Initialize map
+				svc.StorageProviders.MinIO = map[string]*types.MinIOProvider{}
+			}
 			for cn, m := range minioProviders {
 				svc.StorageProviders.MinIO[cn] = m
 			}
