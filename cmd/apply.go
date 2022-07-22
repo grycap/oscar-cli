@@ -102,6 +102,10 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 			}
 
 			// Add (and overwrite) MinIO providers
+			if svc.StorageProviders == nil {
+				// Initialize StorageProviders
+				svc.StorageProviders = &types.StorageProviders{}
+			}
 			if svc.StorageProviders.MinIO == nil {
 				// Initialize map
 				svc.StorageProviders.MinIO = map[string]*types.MinIOProvider{}
