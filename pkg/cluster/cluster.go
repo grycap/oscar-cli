@@ -31,6 +31,7 @@ import (
 )
 
 const infoPath = "/system/info"
+const configPath = "/system/config"
 
 var (
 	// ErrParsingEndpoint error message for cluster endpoint parsing
@@ -110,6 +111,35 @@ func (cluster *Cluster) GetClusterInfo() (info types.Info, err error) {
 	json.NewDecoder(res.Body).Decode(&info)
 
 	return info, nil
+}
+
+// GetClusterConfig returns the config of an OSCAR cluster
+func (cluster *Cluster) GetClusterConfig() (cfg types.Config, err error) {
+	getConfigURL, err := url.Parse(cluster.Endpoint)
+	if err != nil {
+		return cfg, ErrParsingEndpoint
+	}
+	getConfigURL.Path = path.Join(getConfigURL.Path, configPath)
+
+	req, err := http.NewRequest(http.MethodGet, getConfigURL.String(), nil)
+	if err != nil {
+		return cfg, ErrMakingRequest
+	}
+
+	res, err := cluster.GetClient().Do(req)
+	if err != nil {
+		return cfg, ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := CheckStatusCode(res); err != nil {
+		return cfg, err
+	}
+
+	// Decode the response body into the info struct
+	json.NewDecoder(res.Body).Decode(&cfg)
+
+	return cfg, nil
 }
 
 // CheckStatusCode checks if a cluster response is valid and returns an appropriate error if not

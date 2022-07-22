@@ -49,6 +49,36 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Pre-loop to check all clusters and get its MinIO storage provider
+	clusters := map[string]types.Cluster{}
+	minioProviders := map[string]*types.MinIOProvider{}
+	for _, element := range fdl.Functions.Oscar {
+		for clusterName := range element {
+			// Check if cluster is defined
+			err := conf.CheckCluster(clusterName)
+			if err != nil {
+				return err
+			}
+
+			// Get cluster info
+			clusterInfo, err := conf.Oscar[clusterName].GetClusterConfig()
+			if err != nil {
+				return err
+			}
+
+			// Append cluster
+			clusters[clusterName] = types.Cluster{
+				Endpoint:     conf.Oscar[clusterName].Endpoint,
+				AuthUser:     conf.Oscar[clusterName].AuthUser,
+				AuthPassword: conf.Oscar[clusterName].AuthPassword,
+				SSLVerify:    conf.Oscar[clusterName].SSLVerify,
+			}
+
+			// Append MinIO provider
+			minioProviders[clusterName] = clusterInfo.MinIOProvider
+		}
+	}
+
 	fmt.Printf("Applying file \"%s\"...\n", path.Base(args[0]))
 
 	for _, element := range fdl.Functions.Oscar {
@@ -62,12 +92,14 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 			s.FinalMSG = fmt.Sprintf("%s%s\n", successString, msg)
 			s.Start()
 
-			// Check if cluster is defined
-			err := conf.CheckCluster(clusterName)
-			if err != nil {
-				s.FinalMSG = fmt.Sprintf("%s%s\n", failureString, msg)
-				s.Stop()
-				return err
+			// Add (and overwrite) clusters
+			for cn, c := range clusters {
+				svc.Clusters[cn] = c
+			}
+
+			// Add (and overwrite) MinIO providers
+			for cn, m := range minioProviders {
+				svc.StorageProviders.MinIO[cn] = m
 			}
 
 			// Check if service exists in cluster in order to create or edit it
