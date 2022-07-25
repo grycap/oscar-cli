@@ -43,7 +43,8 @@ type FDL struct {
 	Functions struct {
 		Oscar []map[string]*types.Service `json:"oscar" binding:"required"`
 	} `json:"functions" binding:"required"`
-	StorageProviders *types.StorageProviders `json:"storage_providers,omitempty"`
+	StorageProviders *types.StorageProviders  `json:"storage_providers,omitempty"`
+	Clusters         map[string]types.Cluster `json:"clusters,omitempty"`
 }
 
 // ReadFDL reads the content of FDL file and returns a valid FDL struct with the scripts and StorageProviders embedded into the services
@@ -62,7 +63,7 @@ func ReadFDL(path string) (fdl *FDL, err error) {
 	}
 
 	for _, element := range fdl.Functions.Oscar {
-		for _, svc := range element {
+		for clusterID, svc := range element {
 			// Embed script
 			scriptPath := svc.Script
 			script, err := os.ReadFile(scriptPath)
@@ -71,8 +72,14 @@ func ReadFDL(path string) (fdl *FDL, err error) {
 			}
 			svc.Script = string(script)
 
+			// Set ClusterID
+			svc.ClusterID = clusterID
+
 			// Embed StorageProviders
 			svc.StorageProviders = fdl.StorageProviders
+
+			// Embed Clusters
+			svc.Clusters = fdl.Clusters
 		}
 
 	}
