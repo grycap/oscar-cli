@@ -111,7 +111,7 @@ func (config *Config) writeConfig(configPath string) (err error) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
 		return errCreatingConfigFile
 	}
-	if err := os.WriteFile(configPath, configContent, 0644); err != nil {
+	if err := os.WriteFile(configPath, configContent, 0600); err != nil {
 		return errCreatingConfigFile
 	}
 
