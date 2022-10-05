@@ -19,7 +19,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"strings"
 
@@ -32,25 +32,39 @@ func clusterAddFunc(cmd *cobra.Command, args []string) error {
 	// Get the arguments
 	identifier := args[0]
 	endpoint := args[1]
-	username := args[2]
+	var username string
 	var pass string
 	var err error
-	passStdin, _ := cmd.Flags().GetBool("password-stdin")
-	if passStdin {
-		if len(args) != 3 {
+
+	oidcAccountName, _ := cmd.Flags().GetString("oidc-account-name")
+	if oidcAccountName != "" {
+		if len(args) != 2 {
 			cmd.SilenceUsage = false
-			return errors.New("if the \"--password-stdin\" flag is set only 3 arguments are allowed")
-		}
-		pass, err = readPassStdin()
-		if err != nil {
-			return err
+			return errors.New("if the \"--oidc-account-name\" flag is set only 2 arguments are allowed")
 		}
 	} else {
-		if len(args) != 4 {
+		if len(args) == 2 {
 			cmd.SilenceUsage = false
-			return errors.New("you must provide the password")
+			return errors.New("you must provide the username")
 		}
-		pass = args[3]
+		username = args[2]
+		passStdin, _ := cmd.Flags().GetBool("password-stdin")
+		if passStdin {
+			if len(args) != 3 {
+				cmd.SilenceUsage = false
+				return errors.New("if the \"--password-stdin\" flag is set only 3 arguments are allowed")
+			}
+			pass, err = readPassStdin()
+			if err != nil {
+				return err
+			}
+		} else {
+			if len(args) != 4 {
+				cmd.SilenceUsage = false
+				return errors.New("you must provide the password")
+			}
+			pass = args[3]
+		}
 	}
 
 	conf, err := config.ReadConfig(configPath)
@@ -62,7 +76,7 @@ func clusterAddFunc(cmd *cobra.Command, args []string) error {
 
 	disableSSL, _ := cmd.Flags().GetBool("disable-ssl")
 
-	err = conf.AddCluster(configPath, identifier, endpoint, username, pass, !disableSSL)
+	err = conf.AddCluster(configPath, identifier, endpoint, username, pass, oidcAccountName, !disableSSL)
 	if err != nil {
 		return err
 	}
@@ -74,21 +88,22 @@ func clusterAddFunc(cmd *cobra.Command, args []string) error {
 
 func makeClusterAddCmd() *cobra.Command {
 	clusterAddCmd := &cobra.Command{
-		Use:     "add IDENTIFIER ENDPOINT USERNAME {PASSWORD | --password-stdin}",
+		Use:     "add IDENTIFIER ENDPOINT {USERNAME {PASSWORD | --password-stdin} | --oidc-account-name ACCOUNT}",
 		Short:   "Add a new existing cluster to oscar-cli",
-		Args:    cobra.RangeArgs(3, 4),
+		Args:    cobra.RangeArgs(2, 4),
 		Aliases: []string{"a"},
 		RunE:    clusterAddFunc,
 	}
 
 	clusterAddCmd.Flags().Bool("disable-ssl", false, "disable verification of ssl certificates for the added cluster")
 	clusterAddCmd.Flags().Bool("password-stdin", false, "take the password from stdin")
+	clusterAddCmd.Flags().StringP("oidc-account-name", "o", "", "OIDC account name to authenticate using oidc-agent. Note that oidc-agent must be started and properly configured\n(See: https://indigo-dc.gitbook.io/oidc-agent/)")
 
 	return clusterAddCmd
 }
 
 func readPassStdin() (string, error) {
-	bytes, err := ioutil.ReadAll(os.Stdin)
+	bytes, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return "", err
 	}

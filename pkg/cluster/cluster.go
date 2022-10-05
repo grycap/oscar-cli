@@ -21,13 +21,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"time"
 
 	"github.com/grycap/oscar/v2/pkg/types"
+	"github.com/indigo-dc/liboidcagent-go"
 )
 
 const infoPath = "/system/info"
@@ -44,17 +46,23 @@ var (
 
 // Cluster defines the configuration of an OSCAR cluster
 type Cluster struct {
-	Endpoint     string `json:"endpoint" binding:"required"`
-	AuthUser     string `json:"auth_user" binding:"required"`
-	AuthPassword string `json:"auth_password" binding:"required"`
-	SSLVerify    bool   `json:"ssl_verify" binding:"required"`
-	Memory       string `json:"memory" binding:"required"`
-	LogLevel     string `json:"log_level" binding:"required"`
+	Endpoint        string `json:"endpoint"`
+	AuthUser        string `json:"auth_user,omitempty"`
+	AuthPassword    string `json:"auth_password,omitempty"`
+	OIDCAccountName string `json:"oidc_account_name,omitempty"`
+	SSLVerify       bool   `json:"ssl_verify"`
+	Memory          string `json:"memory"`
+	LogLevel        string `json:"log_level"`
 }
 
 type basicAuthRoundTripper struct {
 	username  string
 	password  string
+	transport http.RoundTripper
+}
+
+type tokenRoundTripper struct {
+	token     string
 	transport http.RoundTripper
 }
 
@@ -65,6 +73,13 @@ func (bart *basicAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response,
 	return bart.transport.RoundTrip(req)
 }
 
+// RoundTrip function to implement the RoundTripper interface adding a bearer token
+func (trt *tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Add bearer token to requests
+	req.Header.Add("Authorization", "Bearer "+trt.token)
+	return trt.transport.RoundTrip(req)
+}
+
 // GetClient returns an HTTP client to communicate with the cluster
 func (cluster *Cluster) GetClient() *http.Client {
 	var transport http.RoundTripper = &http.Transport{
@@ -72,10 +87,31 @@ func (cluster *Cluster) GetClient() *http.Client {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: !cluster.SSLVerify},
 	}
 
-	transport = &basicAuthRoundTripper{
-		username:  cluster.AuthUser,
-		password:  cluster.AuthPassword,
-		transport: transport,
+	if cluster.OIDCAccountName != "" {
+		// Get token from OIDC Agent
+		token, err := liboidcagent.GetAccessToken(liboidcagent.TokenRequest{
+			ShortName:       cluster.OIDCAccountName,
+			MinValidPeriod:  600,
+			Scopes:          []string{"openid", "profile", "eduperson_entitlement"},
+			ApplicationHint: "OSCAR-CLI",
+		})
+
+		if err != nil {
+			fmt.Printf("Unable to get the OIDC token, please check your oidc-agent configuration. Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		transport = &tokenRoundTripper{
+			token:     token,
+			transport: transport,
+		}
+	} else {
+		// Use basic auth
+		transport = &basicAuthRoundTripper{
+			username:  cluster.AuthUser,
+			password:  cluster.AuthPassword,
+			transport: transport,
+		}
 	}
 
 	return &http.Client{
@@ -157,7 +193,7 @@ func CheckStatusCode(res *http.Response) error {
 		return errors.New("the service is not ready yet, please wait until it's ready or check if something failed")
 	}
 	// Create an error from the failed response body
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return fmt.Errorf("cannot read the response: %v", err)
 	}
