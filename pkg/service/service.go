@@ -38,6 +38,10 @@ import (
 const servicesPath = "/system/services"
 const runPath = "/run"
 
+var client = &http.Client{
+	Timeout: 100 * time.Second,
+}
+
 // FDL represents a Functions Definition Language file
 type FDL struct {
 	Functions struct {
@@ -164,7 +168,9 @@ func RemoveService(c *cluster.Cluster, name string) error {
 		return cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	//Test to avoid timeout
+	//res, err := c.GetClient().Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}
