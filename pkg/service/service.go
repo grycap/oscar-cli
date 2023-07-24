@@ -201,8 +201,9 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 	if err != nil {
 		return cluster.ErrMakingRequest
 	}
-
+	fmt.Printf("Making http request with client timeout: \"%d\" ", c.GetClient().Timeout)
 	res, err := c.GetClient().Do(req)
+	fmt.Println("Response: ", res)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}
