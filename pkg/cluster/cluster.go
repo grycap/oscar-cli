@@ -34,6 +34,7 @@ import (
 
 const infoPath = "/system/info"
 const configPath = "/system/config"
+const _DEFAULT_TIMEOUT = 20
 
 var (
 	// ErrParsingEndpoint error message for cluster endpoint parsing
@@ -81,7 +82,9 @@ func (trt *tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 }
 
 // GetClient returns an HTTP client to communicate with the cluster
-func (cluster *Cluster) GetClient() *http.Client {
+func (cluster *Cluster) GetClient(args ...int) *http.Client {
+	timeout := _DEFAULT_TIMEOUT
+
 	var transport http.RoundTripper = &http.Transport{
 		// Enable/disable ssl verification
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: !cluster.SSLVerify},
@@ -114,9 +117,13 @@ func (cluster *Cluster) GetClient() *http.Client {
 		}
 	}
 
+	if len(args) != 0 {
+		timeout = args[0]
+	}
+
 	return &http.Client{
 		Transport: transport,
-		Timeout:   time.Second * 400,
+		Timeout:   time.Second * time.Duration(timeout),
 	}
 }
 

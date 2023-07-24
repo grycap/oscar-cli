@@ -201,7 +201,13 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 	if err != nil {
 		return cluster.ErrMakingRequest
 	}
-	res, err := c.GetClient().Do(req)
+
+	client := c.GetClient()
+	// Increase timeout to avoid errors due to daemonset execution
+	if svc.ImagePrefetch {
+		client = c.GetClient(400)
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}
