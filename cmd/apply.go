@@ -124,6 +124,8 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 
 			// Apply the service
 			err = service.ApplyService(svc, conf.Oscar[clusterName], method)
+			msg_log := fmt.Sprintf(" [*] Client timeout:  \"%s\" ", conf.Oscar[clusterName].GetClient().Timeout.String())
+			s.Suffix = msg_log
 			if err != nil {
 				s.FinalMSG = fmt.Sprintf("%s%s\n", failureString, msg)
 				s.Stop()

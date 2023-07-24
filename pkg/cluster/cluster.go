@@ -116,7 +116,7 @@ func (cluster *Cluster) GetClient() *http.Client {
 
 	return &http.Client{
 		Transport: transport,
-		Timeout:   time.Second * 200,
+		Timeout:   time.Second * 400,
 	}
 }
 
