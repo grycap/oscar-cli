@@ -38,10 +38,6 @@ import (
 const servicesPath = "/system/services"
 const runPath = "/run"
 
-var client = &http.Client{
-	Timeout: 100 * time.Second,
-}
-
 // FDL represents a Functions Definition Language file
 type FDL struct {
 	Functions struct {
@@ -168,9 +164,7 @@ func RemoveService(c *cluster.Cluster, name string) error {
 		return cluster.ErrMakingRequest
 	}
 
-	//Test to avoid timeout
-	//res, err := c.GetClient().Do(req)
-	res, err := client.Do(req)
+	res, err := c.GetClient().Do(req)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}
@@ -195,7 +189,6 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 		return cluster.ErrParsingEndpoint
 	}
 	applyServiceURL.Path = path.Join(applyServiceURL.Path, servicesPath)
-
 	// Marshal service
 	svcBytes, err := json.Marshal(svc)
 	if err != nil {
