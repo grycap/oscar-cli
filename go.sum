@@ -95,6 +95,8 @@ github.com/grycap/cdmi-client-go v0.1.1 h1:kHIrrLhvaCD0VyzEa5HOg7d/VgRE11yh9Ztdy
 github.com/grycap/cdmi-client-go v0.1.1/go.mod h1:ZqWeQS3YBJVXxg3HOIkAu1MLNJ4+7s848CyIPMFT5Gc=
 github.com/grycap/oscar/v2 v2.6.2 h1:e5NFl/qqZygtEuKaZMXkhToKmzv39/XEy6fvQKkC7IQ=
 github.com/grycap/oscar/v2 v2.6.2/go.mod h1:LK+YRR8eUVU2xT54JOM5DLoAWoZjQk5l16wmfCICPII=
+github.com/grycap/oscar/v2 v2.7.1 h1:/kofIL8A9iKL+aIVQIlMnGOfVag3ow+Cm2wW4LMjuBg=
+github.com/grycap/oscar/v2 v2.7.1/go.mod h1:LK+YRR8eUVU2xT54JOM5DLoAWoZjQk5l16wmfCICPII=
 github.com/inconshreveable/mousetrap v1.0.0/go.mod h1:PxqpIevigyE2G7u3NXJIT2ANytuPF1OarO4DADm73n8=
 github.com/inconshreveable/mousetrap v1.0.1 h1:U3uMjPSQEBMNp1lFxmllqCPM6P5u/Xq7Pgzkat/bFNc=
 github.com/inconshreveable/mousetrap v1.0.1/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
