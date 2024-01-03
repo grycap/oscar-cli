@@ -93,8 +93,8 @@ github.com/google/uuid v1.1.2/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+
 github.com/grpc-ecosystem/grpc-gateway v1.16.0/go.mod h1:BDjrQk3hbvj6Nolgz8mAMFbcEtjT1g+wF4CSlocrBnw=
 github.com/grycap/cdmi-client-go v0.1.1 h1:kHIrrLhvaCD0VyzEa5HOg7d/VgRE11yh9Ztdyoqii0o=
 github.com/grycap/cdmi-client-go v0.1.1/go.mod h1:ZqWeQS3YBJVXxg3HOIkAu1MLNJ4+7s848CyIPMFT5Gc=
-github.com/grycap/oscar/v2 v2.7.2 h1:0xIIWow/u2IA+3otsH9HKhv2dVrUTGkZCEeOwgRaQ9w=
-github.com/grycap/oscar/v2 v2.7.2/go.mod h1:3+IfQeRmbTGfqhZg4/T/l7bC2BgvcsWJ4GSYPRYLsmI=
+github.com/grycap/oscar/v2 v2.8.0 h1:SYwGU9gDECuSVUnHlK32YZqgpSd9LBk1TDoALMHe5kI=
+github.com/grycap/oscar/v2 v2.8.0/go.mod h1:oDDlTESkRP7gkN3m4Ub9NBQeV29pYy621ZNW0Pe8sAs=
 github.com/inconshreveable/mousetrap v1.0.0/go.mod h1:PxqpIevigyE2G7u3NXJIT2ANytuPF1OarO4DADm73n8=
 github.com/inconshreveable/mousetrap v1.0.1 h1:U3uMjPSQEBMNp1lFxmllqCPM6P5u/Xq7Pgzkat/bFNc=
 github.com/inconshreveable/mousetrap v1.0.1/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
