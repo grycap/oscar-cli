@@ -8,7 +8,7 @@ require (
 	github.com/fatih/color v1.14.1
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/goccy/go-yaml v1.9.8
-	github.com/grycap/oscar/v2 v2.7.2
+	github.com/grycap/oscar/v2 v2.8.0
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/spf13/cobra v1.5.0
