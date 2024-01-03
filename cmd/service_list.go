@@ -50,7 +50,7 @@ func serviceListFunc(cmd *cobra.Command, args []string) error {
 		w := new(tabwriter.Writer)
 		w.Init(os.Stdout, 0, 8, 2, '\t', 0)
 		// Print header
-		fmt.Fprintln(w, "NAME\tCONTAINER\tCPU\tMEMORY")
+		fmt.Fprintln(w, "NAME\tIMAGE\tCPU\tMEMORY")
 		// Print services
 		for _, s := range svcList {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, s.Image, s.CPU, s.Memory)
