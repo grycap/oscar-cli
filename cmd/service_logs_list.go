@@ -24,7 +24,7 @@ import (
 
 	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/service"
-	"github.com/grycap/oscar/v2/pkg/types"
+	"github.com/grycap/oscar/v3/pkg/types"
 	"github.com/spf13/cobra"
 )
 
