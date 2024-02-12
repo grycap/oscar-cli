@@ -32,7 +32,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar/v2/pkg/types"
+	"github.com/grycap/oscar/v3/pkg/types"
 )
 
 const servicesPath = "/system/services"
