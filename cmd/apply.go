@@ -110,10 +110,10 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 				// Initialize map
 				svc.StorageProviders.MinIO = map[string]*types.MinIOProvider{}
 			}
-			for cn, m := range minioProviders {
-				svc.StorageProviders.MinIO[cn] = m
-			}
-
+			/* 			for cn, m := range minioProviders {
+			   				svc.StorageProviders.MinIO[cn] = m
+			   			}
+			*/
 			// Check if service exists in cluster in order to create or edit it
 			if exists := serviceExists(svc, conf.Oscar[clusterName]); exists {
 				msg = fmt.Sprintf(" Editing service \"%s\" in cluster \"%s\"", svc.Name, clusterName)
