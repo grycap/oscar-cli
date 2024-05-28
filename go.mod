@@ -2,8 +2,6 @@ module github.com/grycap/oscar-cli
 
 go 1.21
 
-toolchain go1.21.4
-
 require (
 	github.com/aws/aws-sdk-go v1.44.189
 	github.com/briandowns/spinner v1.19.0
