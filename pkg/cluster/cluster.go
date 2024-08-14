@@ -51,6 +51,7 @@ type Cluster struct {
 	AuthUser        string `json:"auth_user,omitempty"`
 	AuthPassword    string `json:"auth_password,omitempty"`
 	OIDCAccountName string `json:"oidc_account_name,omitempty"`
+	OIDCToken       string `json:"oidc_token,omitempty"`
 	SSLVerify       bool   `json:"ssl_verify"`
 	Memory          string `json:"memory"`
 	LogLevel        string `json:"log_level"`
@@ -106,6 +107,11 @@ func (cluster *Cluster) GetClient(args ...int) *http.Client {
 
 		transport = &tokenRoundTripper{
 			token:     token,
+			transport: transport,
+		}
+	} else if cluster.OIDCToken != "" {
+		transport = &tokenRoundTripper{
+			token:     cluster.OIDCToken,
 			transport: transport,
 		}
 	} else {

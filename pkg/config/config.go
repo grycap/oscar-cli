@@ -119,13 +119,14 @@ func (config *Config) writeConfig(configPath string) (err error) {
 }
 
 // AddCluster adds a new cluster to the config
-func (config *Config) AddCluster(configPath string, id string, endpoint string, authUser string, authPassword string, oidcAccountName string, sslVerify bool) error {
+func (config *Config) AddCluster(configPath string, id string, endpoint string, authUser string, authPassword string, oidcAccountName string, oidcToken string, sslVerify bool) error {
 	// Add (or overwrite) the new cluster
 	config.Oscar[id] = &cluster.Cluster{
 		Endpoint:        endpoint,
 		AuthUser:        authUser,
 		AuthPassword:    authPassword,
 		OIDCAccountName: oidcAccountName,
+		OIDCToken:       oidcToken,
 		SSLVerify:       sslVerify,
 		Memory:          defaultMemory,
 		LogLevel:        defaultLogLevel,
