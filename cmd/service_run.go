@@ -167,7 +167,7 @@ func makeServiceRunCmd() *cobra.Command {
 
 	serviceRunCmd.Flags().StringP("cluster", "c", "", "set the cluster")
 	serviceRunCmd.Flags().StringP("endpoint", "e", "", "endpoint of a non registered cluster")
-	serviceRunCmd.Flags().StringP("token", "t", "", "token of the service")
+	serviceRunCmd.Flags().StringP("token", "tk", "", "token of the service")
 	serviceRunCmd.Flags().StringP("input", "i", "", "input file for the request")
 	serviceRunCmd.Flags().StringP("text-input", "t", "", "text input string for the request")
 	serviceRunCmd.Flags().StringP("output", "o", "", "file path to store the output")
