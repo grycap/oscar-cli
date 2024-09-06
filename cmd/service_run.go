@@ -48,9 +48,11 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 
 	if endpoint != "" && token == "" {
 		// Error missing token
+		return errors.New("you must specify a service token with the flag \"--token\"")
 	}
 	if token != "" && endpoint == "" {
 		// Error missing endpoint
+		return errors.New("you must specify a the cluster endpoint with the flag \"--endpoint\"")
 	}
 	// Parse input (only --input or --text-input are allowed) (AND one of them is required)
 	inputFile, _ := cmd.Flags().GetString("input")
