@@ -42,6 +42,18 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Check if the cluster has auth
+	endpoint, _ := cmd.Flags().GetString("endpoint")
+	token, _ := cmd.Flags().GetString("token")
+
+	if endpoint != "" && token == "" {
+		// Error missing token
+		return errors.New("you must specify a service token with the flag \"--token\"")
+	}
+	if token != "" && endpoint == "" {
+		// Error missing endpoint
+		return errors.New("you must specify a the cluster endpoint with the flag \"--endpoint\"")
+	}
 	// Parse input (only --input or --text-input are allowed) (AND one of them is required)
 	inputFile, _ := cmd.Flags().GetString("input")
 	textInput, _ := cmd.Flags().GetString("text-input")
@@ -79,9 +91,8 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 		}
 		writer.Close()
 	}()
-
 	// Make the request
-	resBody, err := service.RunService(conf.Oscar[cluster], args[0], reader)
+	resBody, err := service.RunService(conf.Oscar[cluster], args[0], token, endpoint, reader)
 	if err != nil {
 		return err
 	}
@@ -157,8 +168,10 @@ func makeServiceRunCmd() *cobra.Command {
 	}
 
 	serviceRunCmd.Flags().StringP("cluster", "c", "", "set the cluster")
-	serviceRunCmd.Flags().StringP("input", "i", "", "input file for the request")
-	serviceRunCmd.Flags().StringP("text-input", "t", "", "text input string for the request")
+	serviceRunCmd.Flags().StringP("endpoint", "e", "", "endpoint of a non registered cluster")
+	serviceRunCmd.Flags().StringP("token", "t", "", "token of the service")
+	serviceRunCmd.Flags().StringP("file-input", "f", "", "input file for the request")
+	serviceRunCmd.Flags().StringP("text-input", "i", "", "text input string for the request")
 	serviceRunCmd.Flags().StringP("output", "o", "", "file path to store the output")
 
 	return serviceRunCmd

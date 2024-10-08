@@ -17,7 +17,7 @@ jobs:
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.18
+        go-version:  1.21
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
@@ -29,7 +29,7 @@ jobs:
         -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
         -a -installsuffix cgo -o oscar-cli .
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: oscar-cli
         path: oscar-cli
@@ -42,7 +42,7 @@ jobs:
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.18
+        go-version:  1.21
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
@@ -54,7 +54,7 @@ jobs:
         -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
         -a -installsuffix cgo -o oscar-cli-arm64 .
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: oscar-cli-arm64
         path: oscar-cli-arm64
@@ -67,7 +67,7 @@ jobs:
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.18
+        go-version:  1.21
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
@@ -79,7 +79,7 @@ jobs:
         -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
         -a -installsuffix cgo -o oscar-cli.exe .
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: oscar-cli.exe
         path: oscar-cli.exe
@@ -92,7 +92,7 @@ jobs:
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.18
+        go-version:  1.21
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
@@ -104,7 +104,7 @@ jobs:
         -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
         -a -installsuffix cgo -o oscar-cli-darwin .
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: oscar-cli-darwin
         path: oscar-cli-darwin
@@ -117,7 +117,7 @@ jobs:
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.18
+        go-version:  1.21
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
@@ -129,7 +129,7 @@ jobs:
         -X \"github.com/grycap/oscar-cli/cmd.GitCommit=${GITHUB_SHA::8}\"" \
         -a -installsuffix cgo -o oscar-cli-darwin-arm64 .
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: oscar-cli-darwin-arm64
         path: oscar-cli-darwin-arm64
@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
     - name: Download jobs' artifacts
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
     - name: Upload artifacts to release
       uses: softprops/action-gh-release@v1
       with:

@@ -221,43 +221,57 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 }
 
 // RunService invokes a service synchronously (a Serverless backend in the cluster is required)
-func RunService(c *cluster.Cluster, name string, input io.Reader) (responseBody io.ReadCloser, err error) {
+func RunService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
 
-	runServiceURL, err := url.Parse(c.Endpoint)
+	var runServiceURL *url.URL
+	if token != "" {
+		runServiceURL, err = url.Parse(endpoint)
+	} else {
+		runServiceURL, err = url.Parse(c.Endpoint)
+	}
+
 	if err != nil {
 		return nil, cluster.ErrParsingEndpoint
 	}
 	runServiceURL.Path = path.Join(runServiceURL.Path, runPath, name)
-
-	// Get the service
-	svc, err := GetService(c, name)
-	if err != nil {
-		return nil, err
-	}
-
 	// Make the request
 	req, err := http.NewRequest(http.MethodPost, runServiceURL.String(), input)
 	if err != nil {
 		return nil, cluster.ErrMakingRequest
 	}
 
-	// Add service's token if defined (OSCAR >= v2.2.0)
-	if svc.Token != "" {
-		bearer := "Bearer " + strings.TrimSpace(svc.Token)
+	var res *http.Response
+	if token != "" {
+		bearer := "Bearer " + strings.TrimSpace(token)
 		req.Header.Add("Authorization", bearer)
+
+		client := &http.Client{}
+		res, err = client.Do(req)
+	} else {
+
+		// Get the service
+		svc, err := GetService(c, name)
+		if err != nil {
+			return nil, err
+		}
+		// Add service's token if defined (OSCAR >= v2.2.0)
+		if svc.Token != "" {
+			bearer := "Bearer " + strings.TrimSpace(svc.Token)
+			req.Header.Add("Authorization", bearer)
+		}
+		// Update cluster client timeout
+		client := c.GetClient()
+		client.Timeout = time.Second * 300
+
+		// Update client transport to remove basic auth
+		client.Transport = &http.Transport{
+			// Enable/disable ssl verification
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !c.SSLVerify},
+		}
+
+		res, err = client.Do(req)
 	}
 
-	// Update cluster client timeout
-	client := c.GetClient()
-	client.Timeout = time.Second * 300
-
-	// Update client transport to remove basic auth
-	client.Transport = &http.Transport{
-		// Enable/disable ssl verification
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: !c.SSLVerify},
-	}
-
-	res, err := client.Do(req)
 	if err != nil {
 		return nil, cluster.ErrSendingRequest
 	}
