@@ -19,7 +19,7 @@ require (
 )
 
 require (
-	github.com/grycap/oscar/v3 v3.1.0
+	github.com/grycap/oscar/v3 v3.2.2
 	github.com/indigo-dc/liboidcagent-go v0.3.0
 )
 
