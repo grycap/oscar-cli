@@ -284,7 +284,7 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 	return res.Body, nil
 }
 
-// RunService invokes a service synchronously (a Serverless backend in the cluster is required)
+// JobService invokes a service asynchronously
 func JobService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
 
 	var runServiceURL *url.URL
