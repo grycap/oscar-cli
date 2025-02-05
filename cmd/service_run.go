@@ -55,14 +55,14 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 		return errors.New("you must specify a the cluster endpoint with the flag \"--endpoint\"")
 	}
 	// Parse input (only --input or --text-input are allowed) (AND one of them is required)
-	inputFile, _ := cmd.Flags().GetString("input")
+	inputFile, _ := cmd.Flags().GetString("file-input")
 	textInput, _ := cmd.Flags().GetString("text-input")
 	outputFile, _ := cmd.Flags().GetString("output")
 	if inputFile == "" && textInput == "" {
-		return errors.New("you must specify \"--input\" or \"--text-input\" flag")
+		return errors.New("you must specify \"--file-input\" or \"--text-input\" flag")
 	}
 	if inputFile != "" && textInput != "" {
-		return errors.New("you only can specify one of \"--input\" or \"--text-input\" flags")
+		return errors.New("you only can specify one of \"--file-input\" or \"--text-input\" flags")
 	}
 
 	var inputReader io.Reader = bytes.NewBufferString(textInput)
@@ -160,7 +160,7 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 
 func makeServiceRunCmd() *cobra.Command {
 	serviceRunCmd := &cobra.Command{
-		Use:     "run SERVICE_NAME {--input | --text-input}",
+		Use:     "run SERVICE_NAME {--file-input | --text-input}",
 		Short:   "Invoke a service synchronously (a Serverless backend in the cluster is required)",
 		Args:    cobra.ExactArgs(1),
 		Aliases: []string{"invoke", "r"},
