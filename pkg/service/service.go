@@ -287,19 +287,19 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 // JobService invokes a service asynchronously
 func JobService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
 
-	var runServiceURL *url.URL
+	var jobServiceURL *url.URL
 	if token != "" {
-		runServiceURL, err = url.Parse(endpoint)
+		jobServiceURL, err = url.Parse(endpoint)
 	} else {
-		runServiceURL, err = url.Parse(c.Endpoint)
+		jobServiceURL, err = url.Parse(c.Endpoint)
 	}
 
 	if err != nil {
 		return nil, cluster.ErrParsingEndpoint
 	}
-	runServiceURL.Path = path.Join(runServiceURL.Path, jobPath, name)
+	jobServiceURL.Path = path.Join(jobServiceURL.Path, jobPath, name)
 	// Make the request
-	req, err := http.NewRequest(http.MethodPost, runServiceURL.String(), input)
+	req, err := http.NewRequest(http.MethodPost, jobServiceURL.String(), input)
 	if err != nil {
 		return nil, cluster.ErrMakingRequest
 	}
