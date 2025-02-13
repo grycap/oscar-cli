@@ -17,6 +17,7 @@ limitations under the License.
 package cluster
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -45,16 +46,28 @@ var (
 	ErrSendingRequest = errors.New("unable to communicate with the cluster, please check that the endpoint is well typed and accessible")
 )
 
+type ResponseRefreshToken struct {
+	AccessToken      string `json:"access_token"`
+	ExpiresIn        int    `json:"expires_in"`
+	RefreshExpiresIn int    `json:"refresh_expires_in"`
+	TokenType        string `json:"token_type"`
+	IdToken          string `json:"id_token"`
+	NotBeforePolicy  int    `json:"not-before-policy"`
+	SessionState     string `json:"session_state"`
+	Scope            string `json:"scope"`
+}
+
 // Cluster defines the configuration of an OSCAR cluster
 type Cluster struct {
-	Endpoint        string `json:"endpoint"`
-	AuthUser        string `json:"auth_user,omitempty"`
-	AuthPassword    string `json:"auth_password,omitempty"`
-	OIDCAccountName string `json:"oidc_account_name,omitempty"`
-	OIDCToken       string `json:"oidc_token,omitempty"`
-	SSLVerify       bool   `json:"ssl_verify"`
-	Memory          string `json:"memory"`
-	LogLevel        string `json:"log_level"`
+	Endpoint         string `json:"endpoint"`
+	AuthUser         string `json:"auth_user,omitempty"`
+	AuthPassword     string `json:"auth_password,omitempty"`
+	OIDCAccountName  string `json:"oidc_account_name,omitempty"`
+	OIDCRefreshToken string `json:"oidc_refresh_token,omitempty"`
+	OIDCRequestURL   string `json:"oidc_request_url,omitempty"`
+	SSLVerify        bool   `json:"ssl_verify"`
+	Memory           string `json:"memory"`
+	LogLevel         string `json:"log_level"`
 }
 
 type basicAuthRoundTripper struct {
@@ -109,9 +122,14 @@ func (cluster *Cluster) GetClient(args ...int) *http.Client {
 			token:     token,
 			transport: transport,
 		}
-	} else if cluster.OIDCToken != "" {
+	} else if cluster.OIDCRefreshToken != "" {
+		accessToken, err := cluster.getAccessToken()
+		if err != nil {
+			fmt.Printf("Unable to get the OIDC token from refresh token, please check your configuration. Error: %v\n", err)
+			os.Exit(1)
+		}
 		transport = &tokenRoundTripper{
-			token:     cluster.OIDCToken,
+			token:     accessToken,
 			transport: transport,
 		}
 	} else {
@@ -211,4 +229,35 @@ func CheckStatusCode(res *http.Response) error {
 		return fmt.Errorf("cannot read the response: %v", err)
 	}
 	return errors.New(string(body))
+}
+
+func (cluser *Cluster) getAccessToken() (string, error) {
+	jsonBody := []byte("grant_type=refresh_token&refresh_token=" +
+		cluser.OIDCRefreshToken +
+		"&client_id=token-portal&scope=openid%20email%20profile%20voperson_id%20eduperson_entitlement")
+
+	bodyReader := bytes.NewReader(jsonBody)
+	req, err := http.NewRequest(http.MethodPost, cluser.OIDCRequestURL, bodyReader)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	if err != nil {
+		return "", fmt.Errorf("error at new request: %v", err)
+	}
+	var res *http.Response
+	client := &http.Client{}
+	res, err = client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error in the request : %v", err)
+	}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(res.Body)
+	respBytes := buf.String()
+
+	respString := string(respBytes)
+
+	var rrt ResponseRefreshToken
+	err = json.Unmarshal([]byte(respString), &rrt)
+	if err != nil {
+		return "", fmt.Errorf("error: cannot read the response json: %v", err)
+	}
+	return rrt.AccessToken, nil
 }
