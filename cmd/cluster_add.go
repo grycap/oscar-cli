@@ -37,16 +37,18 @@ func clusterAddFunc(cmd *cobra.Command, args []string) error {
 	var err error
 
 	oidcAccountName, _ := cmd.Flags().GetString("oidc-account-name")
-	oidcToken, _ := cmd.Flags().GetString("oidc-token")
+	oidcRefreshToken, _ := cmd.Flags().GetString("oidc-refresh-token")
+	oidcRequestURL, _ := cmd.Flags().GetString("oidc-request-url")
+
 	if oidcAccountName != "" {
 		if len(args) != 2 {
 			cmd.SilenceUsage = false
 			return errors.New("if the \"--oidc-account-name\" flag is set only 2 arguments are allowed")
 		}
-	} else if oidcToken != "" {
+	} else if oidcRefreshToken != "" && oidcRequestURL != "" {
 		if len(args) != 2 {
 			cmd.SilenceUsage = false
-			return errors.New("if the \"--oidc-token\" flag is set only 2 arguments are allowed")
+			return errors.New("if the \"--oidc-refresh-token\" flag is set only 2 arguments are allowed")
 		}
 	} else {
 		if len(args) == 2 {
@@ -82,7 +84,7 @@ func clusterAddFunc(cmd *cobra.Command, args []string) error {
 
 	disableSSL, _ := cmd.Flags().GetBool("disable-ssl")
 
-	err = conf.AddCluster(configPath, identifier, endpoint, username, pass, oidcAccountName, oidcToken, !disableSSL)
+	err = conf.AddCluster(configPath, identifier, endpoint, username, pass, oidcAccountName, oidcRefreshToken, oidcRequestURL, !disableSSL)
 	if err != nil {
 		return err
 	}
@@ -94,7 +96,7 @@ func clusterAddFunc(cmd *cobra.Command, args []string) error {
 
 func makeClusterAddCmd() *cobra.Command {
 	clusterAddCmd := &cobra.Command{
-		Use:     "add IDENTIFIER ENDPOINT {USERNAME {PASSWORD | --password-stdin} | --oidc-account-name ACCOUNT | --oidc-token TOKEN}",
+		Use:     "add IDENTIFIER ENDPOINT {USERNAME {PASSWORD | --password-stdin} | --oidc-account-name ACCOUNT | --oidc-refresh-token TOKEN  --oidc-request-url URL }",
 		Short:   "Add a new existing cluster to oscar-cli",
 		Args:    cobra.RangeArgs(2, 4),
 		Aliases: []string{"a"},
@@ -104,8 +106,8 @@ func makeClusterAddCmd() *cobra.Command {
 	clusterAddCmd.Flags().Bool("disable-ssl", false, "disable verification of ssl certificates for the added cluster")
 	clusterAddCmd.Flags().Bool("password-stdin", false, "take the password from stdin")
 	clusterAddCmd.Flags().StringP("oidc-account-name", "o", "", "OIDC account name to authenticate using oidc-agent. Note that oidc-agent must be started and properly configured\n(See: https://indigo-dc.gitbook.io/oidc-agent/)")
-	clusterAddCmd.Flags().StringP("oidc-token", "t", "", "OIDC token to authenticate using oidc-token. Note that oidc-token must be started and properly configured\n(See: https://mytoken.data.kit.edu/)")
-
+	clusterAddCmd.Flags().StringP("oidc-refresh-token", "t", "", "OIDC token to authenticate using oidc-token. Note that oidc-token must be started and properly configured\n(See: https://mytoken.data.kit.edu/)")
+	clusterAddCmd.Flags().StringP("oidc-request-url", "u", "", "OIDC token to authenticate using oidc-token. Note that oidc-token must be started and properly configured\n(See: https://mytoken.data.kit.edu/)")
 	return clusterAddCmd
 }
 
