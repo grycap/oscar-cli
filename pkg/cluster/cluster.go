@@ -29,6 +29,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/grycap/oscar/v3/pkg/types"
 	"github.com/indigo-dc/liboidcagent-go"
 )
@@ -45,6 +46,21 @@ var (
 	// ErrSendingRequest error message for sending requests
 	ErrSendingRequest = errors.New("unable to communicate with the cluster, please check that the endpoint is well typed and accessible")
 )
+
+type RefreshToken struct {
+	Exp          int    `json:"exp"`
+	Iat          int    `json:"iat"`
+	Jti          string `json:"jti"`
+	Iss          string `json:"iss"`
+	Aud          string `json:"aud"`
+	Sub          string `json:"sub"`
+	Typ          string `json:"typ"`
+	Azp          string `json:"azp"`
+	Nonce        string `json:"nonce"`
+	SessionState string `json:"session_state"`
+	Scope        string `json:"scope"`
+	Sid          string `json:"sid"`
+}
 
 type ResponseRefreshToken struct {
 	AccessToken      string `json:"access_token"`
@@ -64,7 +80,6 @@ type Cluster struct {
 	AuthPassword     string `json:"auth_password,omitempty"`
 	OIDCAccountName  string `json:"oidc_account_name,omitempty"`
 	OIDCRefreshToken string `json:"oidc_refresh_token,omitempty"`
-	OIDCRequestURL   string `json:"oidc_request_url,omitempty"`
 	SSLVerify        bool   `json:"ssl_verify"`
 	Memory           string `json:"memory"`
 	LogLevel         string `json:"log_level"`
@@ -232,12 +247,33 @@ func CheckStatusCode(res *http.Response) error {
 }
 
 func (cluser *Cluster) getAccessToken() (string, error) {
+	token, _ := jwt.Parse(cluser.OIDCRefreshToken, func(token *jwt.Token) (interface{}, error) {
+		return []byte("AllYourBase"), nil
+	})
+	iss, err := token.Claims.GetIssuer()
+	if err != nil {
+		fmt.Println(err)
+	}
+	url := iss + "/protocol/openid-connect/token"
+	if err != nil {
+		fmt.Println(err)
+	}
+	var scope string
+	var clientId string
+	//client_id := token.Claims.
+	if str, ok := token.Claims.(jwt.MapClaims); ok {
+		scope = str["scope"].(string)
+		clientId = str["azp"].(string)
+	} else {
+		fmt.Println("error")
+	}
+
 	jsonBody := []byte("grant_type=refresh_token&refresh_token=" +
 		cluser.OIDCRefreshToken +
-		"&client_id=token-portal&scope=openid%20email%20profile%20voperson_id%20eduperson_entitlement")
+		"&client_id=" + clientId + "&scope=" + scope)
 
 	bodyReader := bytes.NewReader(jsonBody)
-	req, err := http.NewRequest(http.MethodPost, cluser.OIDCRequestURL, bodyReader)
+	req, err := http.NewRequest(http.MethodPost, url, bodyReader)
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	if err != nil {
 		return "", fmt.Errorf("error at new request: %v", err)
