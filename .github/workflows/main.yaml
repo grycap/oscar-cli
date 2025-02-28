@@ -21,7 +21,7 @@ jobs:
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build --ldflags "-s -w \
@@ -46,7 +46,7 @@ jobs:
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build --ldflags "-s -w \
@@ -71,7 +71,7 @@ jobs:
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build --ldflags "-s -w \
@@ -96,7 +96,7 @@ jobs:
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build --ldflags "-s -w \
@@ -121,7 +121,7 @@ jobs:
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build --ldflags "-s -w \
