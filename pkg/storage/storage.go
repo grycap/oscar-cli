@@ -211,7 +211,7 @@ func ListFiles(c *cluster.Cluster, svcName, providerString, remotePath string) (
 	}
 
 	switch v := prov.(type) {
-	case types.S3Provider:
+	case *types.S3Provider:
 		res, err := v.GetS3Client().ListObjects(&s3.ListObjectsInput{
 			Bucket: aws.String(splitPath[0]),
 			Prefix: aws.String(splitPath[1]),
@@ -220,7 +220,13 @@ func ListFiles(c *cluster.Cluster, svcName, providerString, remotePath string) (
 			return list, err
 		}
 		for _, obj := range res.Contents {
-			list = append(list, strings.TrimPrefix(*obj.Key, fmt.Sprintf("%s/", splitPath[1])))
+			nameFile := strings.TrimPrefix(*obj.Key, fmt.Sprintf("%s/", splitPath[1]))
+			dateFile := *obj.LastModified
+			if *obj.Size == 0 {
+				list = append(list, nameFile)
+			} else {
+				list = append(list, nameFile+" \t"+dateFile.String())
+			}
 		}
 	case *types.MinIOProvider:
 		// Repeat s3 code for correct type assertion
@@ -232,7 +238,14 @@ func ListFiles(c *cluster.Cluster, svcName, providerString, remotePath string) (
 			return list, err
 		}
 		for _, obj := range res.Contents {
-			list = append(list, strings.TrimPrefix(*obj.Key, fmt.Sprintf("%s/", splitPath[1])))
+			nameFile := strings.TrimPrefix(*obj.Key, fmt.Sprintf("%s/", splitPath[1]))
+			dateFile := *obj.LastModified
+			if *obj.Size == 0 {
+				list = append(list, nameFile)
+			} else {
+				list = append(list, nameFile+" \t"+dateFile.String())
+			}
+
 		}
 	case *types.OnedataProvider:
 		remotePath = path.Join(v.Space, remotePath)
