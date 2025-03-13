@@ -61,8 +61,8 @@ func serviceRemoveFunc(cmd *cobra.Command, args []string) error {
 
 func makeServiceRemoveCmd() *cobra.Command {
 	serviceGetCmd := &cobra.Command{
-		Use:     "remove SERVICE_NAME...",
-		Short:   "Remove a service from the cluster",
+		Use:     "delete SERVICE_NAME...",
+		Short:   "Delete a service from the cluster",
 		Args:    cobra.MinimumNArgs(1),
 		Aliases: []string{"rm"},
 		RunE:    serviceRemoveFunc,
