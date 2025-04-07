@@ -234,11 +234,6 @@ func DeleteFile(c *cluster.Cluster, svcName, providerString, remotePath string) 
 		)
 	case *types.OnedataProvider:
 		return errors.New("invalid provider")
-		/*remotePath = path.Join(v.Space, remotePath)
-		err := v.GetCDMIClient().CreateObject(remotePath, file, true)
-		if err != nil {
-			return err
-		}*/
 	default:
 		return errors.New("invalid provider")
 	}
