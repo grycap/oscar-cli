@@ -28,13 +28,14 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/grycap/oscar-cli/pkg/cluster"
+	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/service"
 	"github.com/grycap/oscar/v3/pkg/types"
 )
 
 func getProvider(c *cluster.Cluster, providerString string, providers *types.StorageProviders) (interface{}, error) {
 	if providerString == "minio" || providerString == "minio.default" {
-		config, err := service.GetConfig(c)
+		config, err := config.GetUserConfig(c)
 		if err != nil {
 			return nil, cluster.ErrMakingRequest
 		}

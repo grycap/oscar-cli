@@ -36,7 +36,6 @@ import (
 )
 
 const servicesPath = "/system/services"
-const configPath = "/system/config"
 const runPath = "/run"
 const jobPath = "/job"
 
@@ -87,36 +86,6 @@ func ReadFDL(path string) (fdl *FDL, err error) {
 	}
 
 	return fdl, nil
-}
-
-func GetConfig(c *cluster.Cluster) (interface{}, error) {
-	getServiceURL, err := url.Parse(c.Endpoint)
-	if err != nil {
-		return nil, cluster.ErrMakingRequest
-	}
-	getServiceURL.Path = path.Join(getServiceURL.Path, configPath)
-	req, err := http.NewRequest(http.MethodGet, getServiceURL.String(), nil)
-	if err != nil {
-		return nil, cluster.ErrMakingRequest
-	}
-
-	res, err := c.GetClient().Do(req)
-	if err != nil {
-		return nil, cluster.ErrSendingRequest
-	}
-	defer res.Body.Close()
-
-	if err := cluster.CheckStatusCode(res); err != nil {
-		return nil, err
-	}
-	var response interface{}
-	//var dataprocess *types.MinIOProvider
-	// Decode the response body into the info struct
-	err = json.NewDecoder(res.Body).Decode(&response)
-	if err != nil {
-		return nil, err
-	}
-	return response, nil
 }
 
 // GetService gets a service from a cluster
