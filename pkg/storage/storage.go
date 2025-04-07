@@ -224,16 +224,6 @@ func DeleteFile(c *cluster.Cluster, svcName, providerString, remotePath string) 
 	}
 
 	switch v := prov.(type) {
-	case types.S3Provider:
-		/*uploader := s3manager.NewUploaderWithClient(v.GetS3Client())
-		_, err := uploader.Upload(&s3manager.UploadInput{
-			Bucket: aws.String(splitPath[0]),
-			Key:    aws.String(splitPath[1]),
-			Body:   file,
-		})
-		if err != nil {
-			return err
-		}*/
 	case *types.MinIOProvider:
 		// Repeat s3 code for correct type assertion
 		v.GetS3Client().DeleteObject(
