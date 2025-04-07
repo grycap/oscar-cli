@@ -19,7 +19,7 @@ require (
 )
 
 require (
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/grycap/oscar/v3 v3.3.0
 	github.com/indigo-dc/liboidcagent-go v0.3.0
 )
