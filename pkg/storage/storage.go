@@ -232,8 +232,6 @@ func DeleteFile(c *cluster.Cluster, svcName, providerString, remotePath string) 
 				Key:    aws.String(splitPath[1]),
 			},
 		)
-	case *types.OnedataProvider:
-		return errors.New("invalid provider")
 	default:
 		return errors.New("invalid provider")
 	}
