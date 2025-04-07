@@ -32,9 +32,21 @@ import (
 	"github.com/grycap/oscar/v3/pkg/types"
 )
 
-func getProvider(providerString string, providers *types.StorageProviders) (interface{}, error) {
-	if providerString == "minio" {
-		providerString = "minio.default"
+func getProvider(c *cluster.Cluster, providerString string, providers *types.StorageProviders) (interface{}, error) {
+	if providerString == "minio" || providerString == "minio.default" {
+		config, err := service.GetConfig(c)
+		if err != nil {
+			return nil, cluster.ErrMakingRequest
+		}
+		minio_value := config.(map[string]interface{})["minio_provider"].(map[string]interface{})
+		minio_response := types.MinIOProvider{
+			AccessKey: minio_value["access_key"].(string),
+			SecretKey: minio_value["secret_key"].(string),
+			Region:    minio_value["region"].(string),
+			Endpoint:  minio_value["endpoint"].(string),
+			Verify:    minio_value["verify"].(bool),
+		}
+		return &minio_response, nil
 	}
 
 	// Check the format of STORAGE_PROVIDER
@@ -71,7 +83,7 @@ func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath 
 	}
 
 	// Get the provider (as an interface)
-	prov, err := getProvider(providerString, svc.StorageProviders)
+	prov, err := getProvider(c, providerString, svc.StorageProviders)
 	if err != nil {
 		return err
 	}
@@ -135,7 +147,7 @@ func PutFile(c *cluster.Cluster, svcName, providerString, localPath, remotePath 
 	}
 
 	// Get the provider (as an interface)
-	prov, err := getProvider(providerString, svc.StorageProviders)
+	prov, err := getProvider(c, providerString, svc.StorageProviders)
 	if err != nil {
 		return err
 	}
@@ -189,6 +201,60 @@ func PutFile(c *cluster.Cluster, svcName, providerString, localPath, remotePath 
 	return nil
 }
 
+// DeleteFile uploads a file to a storage provider
+func DeleteFile(c *cluster.Cluster, svcName, providerString, remotePath string) error {
+	// Get the service definition
+	svc, err := service.GetService(c, svcName)
+	if err != nil {
+		return err
+	}
+
+	// Get the provider (as an interface)
+	prov, err := getProvider(c, providerString, svc.StorageProviders)
+	if err != nil {
+		return err
+	}
+
+	remotePath = strings.Trim(remotePath, " /")
+	// Split buckets and folders from remotePath
+	splitPath := strings.SplitN(remotePath, "/", 2)
+	if len(splitPath) == 1 {
+		splitPath = append(splitPath, "")
+	}
+
+	switch v := prov.(type) {
+	case types.S3Provider:
+		/*uploader := s3manager.NewUploaderWithClient(v.GetS3Client())
+		_, err := uploader.Upload(&s3manager.UploadInput{
+			Bucket: aws.String(splitPath[0]),
+			Key:    aws.String(splitPath[1]),
+			Body:   file,
+		})
+		if err != nil {
+			return err
+		}*/
+	case *types.MinIOProvider:
+		// Repeat s3 code for correct type assertion
+		v.GetS3Client().DeleteObject(
+			&s3.DeleteObjectInput{
+				Bucket: aws.String(splitPath[0]),
+				Key:    aws.String(splitPath[1]),
+			},
+		)
+	case *types.OnedataProvider:
+		return errors.New("invalid provider")
+		/*remotePath = path.Join(v.Space, remotePath)
+		err := v.GetCDMIClient().CreateObject(remotePath, file, true)
+		if err != nil {
+			return err
+		}*/
+	default:
+		return errors.New("invalid provider")
+	}
+
+	return nil
+}
+
 // ListFiles list files from a storage provider
 func ListFiles(c *cluster.Cluster, svcName, providerString, remotePath string) (list []string, err error) {
 	// Get the service definition
@@ -198,7 +264,7 @@ func ListFiles(c *cluster.Cluster, svcName, providerString, remotePath string) (
 	}
 
 	// Get the provider (as an interface)
-	prov, err := getProvider(providerString, svc.StorageProviders)
+	prov, err := getProvider(c, providerString, svc.StorageProviders)
 	if err != nil {
 		return list, err
 	}
