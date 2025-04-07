@@ -12,14 +12,18 @@ require (
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/spf13/cobra v1.5.0
 	golang.org/x/net v0.23.0 // indirect
-	golang.org/x/sys v0.18.0 // indirect
-	golang.org/x/text v0.14.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
+	golang.org/x/text v0.21.0 // indirect
 	k8s.io/api v0.29.2 // indirect
 	k8s.io/klog/v2 v2.110.1 // indirect
 )
 
 require (
+<<<<<<< HEAD
 	github.com/golang-jwt/jwt/v5 v5.2.1
+=======
+	github.com/golang-jwt/jwt/v5 v5.2.2
+>>>>>>> c5700092903eebee412443493fb2b116e3e992b7
 	github.com/grycap/oscar/v3 v3.3.0
 	github.com/indigo-dc/liboidcagent-go v0.3.0
 )
@@ -48,9 +52,9 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/crypto v0.21.0 // indirect
+	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
-	golang.org/x/term v0.18.0 // indirect
+	golang.org/x/term v0.27.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
