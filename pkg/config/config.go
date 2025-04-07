@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/user"
 	"path"
@@ -31,6 +33,7 @@ import (
 
 const (
 	defaultConfig   = ".oscar-cli/config.yaml"
+	configPath      = "/system/config"
 	defaultMemory   = "256Mi"
 	defaultLogLevel = "INFO"
 )
@@ -192,4 +195,33 @@ func (config *Config) SetDefault(configPath, id string) error {
 	}
 
 	return nil
+}
+
+func GetUserConfig(c *cluster.Cluster) (interface{}, error) {
+	getServiceURL, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return nil, cluster.ErrMakingRequest
+	}
+	getServiceURL.Path = path.Join(getServiceURL.Path, configPath)
+	req, err := http.NewRequest(http.MethodGet, getServiceURL.String(), nil)
+	if err != nil {
+		return nil, cluster.ErrMakingRequest
+	}
+
+	res, err := c.GetClient().Do(req)
+	if err != nil {
+		return nil, cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return nil, err
+	}
+	var response interface{}
+	// Decode the response body into the info struct
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
 }
