@@ -20,8 +20,6 @@ jobs:
         go-version:  1.21
     - name: build
       run: |
-        echo ${GITHUB_REF#refs/tags/}
-        echo $GITHUB_REF
         if [[ $GITHUB_REF == refs/tags/* ]]; then
           VERSION=${GITHUB_REF#refs/tags/}
         fi
