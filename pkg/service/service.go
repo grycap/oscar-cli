@@ -349,6 +349,5 @@ func JobService(c *cluster.Cluster, name string, token string, endpoint string, 
 }
 
 func getScriptPath(scriptPath string, servicePath string) string {
-	wd, _ := os.Getwd()
-	return wd + "/" + filepath.Dir(servicePath) + "/" + scriptPath
+	return filepath.Dir(servicePath) + "/" + scriptPath
 }
