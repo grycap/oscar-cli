@@ -61,10 +61,12 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 	minioProviders := map[string]*types.MinIOProvider{}
 	for _, element := range fdl.Functions.Oscar {
 		for clusterName := range element {
-			targetCluster := clusterName
-			if destinationClusterID != "" {
-				targetCluster = destinationClusterID
+			default_cluster, _ := cmd.Flags().GetBool("default")
+			targetCluster, errCluster := conf.GetCluster(default_cluster, destinationClusterID, clusterName)
+			if errCluster != nil {
+				return errCluster
 			}
+
 			if _, exists := clusters[targetCluster]; exists {
 				continue
 			}
@@ -98,9 +100,10 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 
 	for _, element := range fdl.Functions.Oscar {
 		for clusterName, svc := range element {
-			targetCluster := clusterName
-			if destinationClusterID != "" {
-				targetCluster = destinationClusterID
+			default_cluster, _ := cmd.Flags().GetBool("default")
+			targetCluster, errCluster := conf.GetCluster(default_cluster, destinationClusterID, clusterName)
+			if errCluster != nil {
+				return errCluster
 			}
 
 			svc.ClusterID = targetCluster
@@ -171,6 +174,7 @@ func makeApplyCmd() *cobra.Command {
 
 	applyCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
 	applyCmd.Flags().StringVarP(&destinationClusterID, "cluster", "c", "", "override the cluster id defined in the FDL file")
+	applyCmd.Flags().Bool("default", false, "override the cluster id defined in config file")
 
 	return applyCmd
 }
