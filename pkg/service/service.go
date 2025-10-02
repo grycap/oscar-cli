@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -66,7 +67,7 @@ func ReadFDL(path string) (fdl *FDL, err error) {
 	for _, element := range fdl.Functions.Oscar {
 		for clusterID, svc := range element {
 			// Embed script
-			scriptPath := svc.Script
+			scriptPath := getScriptPath(svc.Script, path)
 			script, err := os.ReadFile(scriptPath)
 			if err != nil {
 				return fdl, fmt.Errorf("cannot load the script \"%s\" of service \"%s\", please check the path", scriptPath, svc.Name)
@@ -345,4 +346,8 @@ func JobService(c *cluster.Cluster, name string, token string, endpoint string, 
 	}
 
 	return res.Body, nil
+}
+
+func getScriptPath(scriptPath string, servicePath string) string {
+	return filepath.Dir(servicePath) + "/" + scriptPath
 }
