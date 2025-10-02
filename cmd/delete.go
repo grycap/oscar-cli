@@ -46,28 +46,33 @@ func deleteFunc(cmd *cobra.Command, args []string) error {
 	minioProviders := map[string]*types.MinIOProvider{}
 	for _, element := range fdl.Functions.Oscar {
 		for clusterName := range element {
+			default_cluster, _ := cmd.Flags().GetBool("default")
+			targetCluster, errCluster := conf.GetCluster(default_cluster, destinationClusterID, clusterName)
+			if errCluster != nil {
+				return errCluster
+			}
 			// Check if cluster is defined
-			err := conf.CheckCluster(clusterName)
+			err := conf.CheckCluster(targetCluster)
 			if err != nil {
 				return err
 			}
 
 			// Get cluster info
-			clusterInfo, err := conf.Oscar[clusterName].GetClusterConfig()
+			clusterInfo, err := conf.Oscar[targetCluster].GetClusterConfig()
 			if err != nil {
 				return err
 			}
 
 			// Append cluster
-			clusters[clusterName] = types.Cluster{
-				Endpoint:     conf.Oscar[clusterName].Endpoint,
-				AuthUser:     conf.Oscar[clusterName].AuthUser,
-				AuthPassword: conf.Oscar[clusterName].AuthPassword,
-				SSLVerify:    conf.Oscar[clusterName].SSLVerify,
+			clusters[targetCluster] = types.Cluster{
+				Endpoint:     conf.Oscar[targetCluster].Endpoint,
+				AuthUser:     conf.Oscar[targetCluster].AuthUser,
+				AuthPassword: conf.Oscar[targetCluster].AuthPassword,
+				SSLVerify:    conf.Oscar[targetCluster].SSLVerify,
 			}
 
 			// Append MinIO provider
-			minioProviders[clusterName] = clusterInfo.MinIOProvider
+			minioProviders[targetCluster] = clusterInfo.MinIOProvider
 		}
 	}
 
@@ -75,8 +80,12 @@ func deleteFunc(cmd *cobra.Command, args []string) error {
 
 	for _, element := range fdl.Functions.Oscar {
 		for clusterName, svc := range element {
-
-			msg := fmt.Sprintf(" Removing service \"%s\" in cluster \"%s\"", svc.Name, clusterName)
+			default_cluster, _ := cmd.Flags().GetBool("default")
+			targetCluster, errCluster := conf.GetCluster(default_cluster, destinationClusterID, clusterName)
+			if errCluster != nil {
+				return errCluster
+			}
+			msg := fmt.Sprintf(" Removing service \"%s\" in cluster \"%s\"", svc.Name, targetCluster)
 
 			// Make and start the spinner
 			s := spinner.New(spinner.CharSets[78], time.Millisecond*100)
@@ -85,7 +94,7 @@ func deleteFunc(cmd *cobra.Command, args []string) error {
 			s.Start()
 
 			// Remove the service
-			if err := service.RemoveService(conf.Oscar[clusterName], svc.Name); err != nil {
+			if err := service.RemoveService(conf.Oscar[targetCluster], svc.Name); err != nil {
 				s.FinalMSG = fmt.Sprintf("%s%s\n", failureString, msg)
 				s.Stop()
 				return err
@@ -107,6 +116,7 @@ func makeDeleteCmd() *cobra.Command {
 	}
 
 	applyCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
+	applyCmd.Flags().Bool("default", false, "override the cluster id defined in config file")
 
 	return applyCmd
 }

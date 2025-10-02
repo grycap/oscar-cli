@@ -32,10 +32,11 @@ import (
 )
 
 const (
-	defaultConfig   = ".oscar-cli/config.yaml"
-	configPath      = "/system/config"
-	defaultMemory   = "256Mi"
-	defaultLogLevel = "INFO"
+	defaultConfig      = ".oscar-cli/config.yaml"
+	configPath         = "/system/config"
+	defaultMemory      = "256Mi"
+	defaultLogLevel    = "INFO"
+	defaultClusterName = "default-cluster"
 )
 
 var (
@@ -177,6 +178,34 @@ func (config *Config) CheckCluster(id string) error {
 		return fmt.Errorf(clusterNotDefinedMsg, id)
 	}
 	return nil
+}
+
+func (config *Config) GetCluster(default_cluster bool, destinationClusterID string, clusterName string) (string, error) {
+	if default_cluster {
+		err := config.CheckCluster(config.Default)
+		if err != nil {
+			return "", err
+		}
+		return config.Default, nil
+	} else if destinationClusterID != "" {
+		err := config.CheckCluster(destinationClusterID)
+		if err != nil {
+			return "", err
+		}
+		return destinationClusterID, nil
+	} else if clusterName == defaultClusterName {
+		err := config.CheckCluster(config.Default)
+		if err != nil {
+			return "", err
+		}
+		return config.Default, nil
+	}
+	err := config.CheckCluster(clusterName)
+	if err != nil {
+		return "", err
+	}
+	return clusterName, nil
+
 }
 
 // SetDefault set a default cluster in the config file

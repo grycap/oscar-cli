@@ -32,8 +32,9 @@ import (
 )
 
 var (
-	failureString = color.New(color.FgRed).Sprint("✗ ")
-	successString = color.New(color.FgGreen).Sprint("✓ ")
+	failureString        = color.New(color.FgRed).Sprint("✗ ")
+	successString        = color.New(color.FgGreen).Sprint("✓ ")
+	destinationClusterID string
 )
 
 func applyFunc(cmd *cobra.Command, args []string) error {
@@ -49,33 +50,49 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if destinationClusterID != "" {
+		if err := conf.CheckCluster(destinationClusterID); err != nil {
+			return err
+		}
+	}
+
 	// Pre-loop to check all clusters and get its MinIO storage provider
 	clusters := map[string]types.Cluster{}
 	minioProviders := map[string]*types.MinIOProvider{}
 	for _, element := range fdl.Functions.Oscar {
 		for clusterName := range element {
+			default_cluster, _ := cmd.Flags().GetBool("default")
+			targetCluster, errCluster := conf.GetCluster(default_cluster, destinationClusterID, clusterName)
+			if errCluster != nil {
+				return errCluster
+			}
+
+			if _, exists := clusters[targetCluster]; exists {
+				continue
+			}
+
 			// Check if cluster is defined
-			err := conf.CheckCluster(clusterName)
+			err := conf.CheckCluster(targetCluster)
 			if err != nil {
 				return err
 			}
 
 			// Get cluster info
-			clusterInfo, err := conf.Oscar[clusterName].GetClusterConfig()
+			clusterInfo, err := conf.Oscar[targetCluster].GetClusterConfig()
 			if err != nil {
 				return err
 			}
 
 			// Append cluster
-			clusters[clusterName] = types.Cluster{
-				Endpoint:     conf.Oscar[clusterName].Endpoint,
-				AuthUser:     conf.Oscar[clusterName].AuthUser,
-				AuthPassword: conf.Oscar[clusterName].AuthPassword,
-				SSLVerify:    conf.Oscar[clusterName].SSLVerify,
+			clusters[targetCluster] = types.Cluster{
+				Endpoint:     conf.Oscar[targetCluster].Endpoint,
+				AuthUser:     conf.Oscar[targetCluster].AuthUser,
+				AuthPassword: conf.Oscar[targetCluster].AuthPassword,
+				SSLVerify:    conf.Oscar[targetCluster].SSLVerify,
 			}
 
 			// Append MinIO provider
-			minioProviders[clusterName] = clusterInfo.MinIOProvider
+			minioProviders[targetCluster] = clusterInfo.MinIOProvider
 		}
 	}
 
@@ -83,7 +100,15 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 
 	for _, element := range fdl.Functions.Oscar {
 		for clusterName, svc := range element {
-			msg := fmt.Sprintf(" Creating service \"%s\" in cluster \"%s\"", svc.Name, clusterName)
+			default_cluster, _ := cmd.Flags().GetBool("default")
+			targetCluster, errCluster := conf.GetCluster(default_cluster, destinationClusterID, clusterName)
+			if errCluster != nil {
+				return errCluster
+			}
+
+			svc.ClusterID = targetCluster
+
+			msg := fmt.Sprintf(" Creating service \"%s\" in cluster \"%s\"", svc.Name, targetCluster)
 			method := http.MethodPost
 
 			// Make and start the spinner
@@ -112,15 +137,15 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 			}
 
 			// Check if service exists in cluster in order to create or edit it
-			if exists := serviceExists(svc, conf.Oscar[clusterName]); exists {
-				msg = fmt.Sprintf(" Editing service \"%s\" in cluster \"%s\"", svc.Name, clusterName)
+			if exists := serviceExists(svc, conf.Oscar[targetCluster]); exists {
+				msg = fmt.Sprintf(" Editing service \"%s\" in cluster \"%s\"", svc.Name, targetCluster)
 				method = http.MethodPut
 				s.Suffix = msg
 				s.FinalMSG = fmt.Sprintf("%s%s\n", successString, msg)
 			}
 
 			// Apply the service
-			err = service.ApplyService(svc, conf.Oscar[clusterName], method)
+			err = service.ApplyService(svc, conf.Oscar[targetCluster], method)
 			if err != nil {
 				s.FinalMSG = fmt.Sprintf("%s%s\n", failureString, msg)
 				s.Stop()
@@ -148,6 +173,8 @@ func makeApplyCmd() *cobra.Command {
 	}
 
 	applyCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
+	applyCmd.Flags().StringVarP(&destinationClusterID, "cluster", "c", "", "override the cluster id defined in the FDL file")
+	applyCmd.Flags().Bool("default", false, "override the cluster id defined in config file")
 
 	return applyCmd
 }
