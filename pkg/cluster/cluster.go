@@ -124,7 +124,7 @@ func (cluster *Cluster) GetClient(args ...int) *http.Client {
 		token, err := liboidcagent.GetAccessToken(liboidcagent.TokenRequest{
 			ShortName:       cluster.OIDCAccountName,
 			MinValidPeriod:  600,
-			Scopes:          []string{"openid", "profile", "eduperson_entitlement"},
+			Scopes:          []string{},
 			ApplicationHint: "OSCAR-CLI",
 		})
 
@@ -246,8 +246,8 @@ func CheckStatusCode(res *http.Response) error {
 	return errors.New(string(body))
 }
 
-func (cluser *Cluster) getAccessToken() (string, error) {
-	token, _ := jwt.Parse(cluser.OIDCRefreshToken, func(token *jwt.Token) (interface{}, error) {
+func (cluster *Cluster) getAccessToken() (string, error) {
+	token, _ := jwt.Parse(cluster.OIDCRefreshToken, func(token *jwt.Token) (interface{}, error) {
 		return []byte("AllYourBase"), nil
 	})
 	iss, err := token.Claims.GetIssuer()
@@ -269,7 +269,7 @@ func (cluser *Cluster) getAccessToken() (string, error) {
 	}
 
 	jsonBody := []byte("grant_type=refresh_token&refresh_token=" +
-		cluser.OIDCRefreshToken +
+		cluster.OIDCRefreshToken +
 		"&client_id=" + clientId + "&scope=" + scope)
 
 	bodyReader := bytes.NewReader(jsonBody)
