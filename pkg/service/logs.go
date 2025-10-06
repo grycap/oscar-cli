@@ -29,14 +29,22 @@ import (
 
 const logsPath = "/system/logs"
 
+type JobsResponse struct {
+	Jobs         map[string]*types.JobInfo `json:"jobs"`
+	NextPage     string                    `json:"next_page,omitempty"`
+	RemainingJob *int64                    `json:"remaining_jobs,omitempty"`
+}
+
 // ListLogs returns a map with all the available logs from the given service
-func ListLogs(c *cluster.Cluster, name string) (logMap map[string]*types.JobInfo, err error) {
+func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse, err error) {
 	listLogsURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return logMap, cluster.ErrParsingEndpoint
 	}
 	listLogsURL.Path = path.Join(listLogsURL.Path, logsPath, name)
-
+	query := listLogsURL.Query()
+	query.Set("page", page)
+	listLogsURL.RawQuery = query.Encode()
 	req, err := http.NewRequest(http.MethodGet, listLogsURL.String(), nil)
 	if err != nil {
 		return logMap, cluster.ErrMakingRequest
