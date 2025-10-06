@@ -59,6 +59,7 @@ Aliases:
 
 Flags:
       --config string   set the location of the config file (YAML or JSON)
+  -c, --cluster string  override the cluster id defined in the FDL file
   -h, --help            help for apply
 ```
 
