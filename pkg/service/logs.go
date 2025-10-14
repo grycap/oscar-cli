@@ -19,7 +19,10 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
@@ -64,10 +67,22 @@ func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse
 		return logMap, err
 	}
 
-	// Decode the response body into the logMap
-	err = json.NewDecoder(res.Body).Decode(&logMap)
+	tmp_jobInfo := new(map[string]*types.JobInfo)
+	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return logMap, err
+		log.Fatal(err)
+	}
+	err = json.Unmarshal(bodyBytes, &tmp_jobInfo)
+	if err != nil {
+	} else {
+		logMap = JobsResponse{
+			Jobs:     *tmp_jobInfo,
+			NextPage: ""}
+		return logMap, nil
+	}
+	err = json.Unmarshal(bodyBytes, &logMap)
+	if err != nil {
+		fmt.Println("Error unmarshalling:", err)
 	}
 
 	return logMap, nil
