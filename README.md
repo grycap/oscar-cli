@@ -276,13 +276,14 @@ Get the logs from a service's job.
 
 ```
 Usage:
-  oscar-cli service logs get SERVICE_NAME JOB_NAME [flags]
+  oscar-cli service logs get SERVICE_NAME [JOB_NAME] [flags]
 
 Aliases:
   get, g
 
 Flags:
   -h, --help              help for get
+  -l, --latest            get logs from the most recent job
   -t, --show-timestamps   show timestamps in the logs
 
 Global Flags:

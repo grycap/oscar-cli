@@ -18,10 +18,15 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
+	"time"
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar/v3/pkg/types"
@@ -34,6 +39,8 @@ type JobsResponse struct {
 	NextPage     string                    `json:"next_page,omitempty"`
 	RemainingJob *int64                    `json:"remaining_jobs,omitempty"`
 }
+
+var ErrNoLogsFound = errors.New("service has no logs")
 
 // ListLogs returns a map with all the available logs from the given service
 func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse, err error) {
@@ -60,10 +67,22 @@ func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse
 		return logMap, err
 	}
 
-	// Decode the response body into the logMap
-	err = json.NewDecoder(res.Body).Decode(&logMap)
+	tmp_jobInfo := new(map[string]*types.JobInfo)
+	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return logMap, err
+		log.Fatal(err)
+	}
+	err = json.Unmarshal(bodyBytes, &tmp_jobInfo)
+	if err != nil {
+	} else {
+		logMap = JobsResponse{
+			Jobs:     *tmp_jobInfo,
+			NextPage: ""}
+		return logMap, nil
+	}
+	err = json.Unmarshal(bodyBytes, &logMap)
+	if err != nil {
+		fmt.Println("Error unmarshalling:", err)
 	}
 
 	return logMap, nil
@@ -105,6 +124,64 @@ func GetLogs(c *cluster.Cluster, svcName string, jobName string, timestamps bool
 	}
 
 	return string(byteLogs), nil
+}
+
+// FindLatestJobName returns the job name with the most recent timestamp available
+func FindLatestJobName(c *cluster.Cluster, svcName string) (string, error) {
+	var latestName string
+	var latestTime time.Time
+	page := ""
+
+	for {
+		logMap, err := ListLogs(c, svcName, page)
+		if err != nil {
+			return "", err
+		}
+
+		for jobName, info := range logMap.Jobs {
+			jobTime := extractJobTimestamp(info)
+			switch {
+			case latestName == "":
+				latestName = jobName
+				latestTime = jobTime
+			case latestTime.IsZero() && !jobTime.IsZero():
+				latestName = jobName
+				latestTime = jobTime
+			case !jobTime.IsZero() && jobTime.After(latestTime):
+				latestName = jobName
+				latestTime = jobTime
+			case latestTime.IsZero() && jobTime.IsZero() && jobName > latestName:
+				latestName = jobName
+			}
+		}
+
+		if logMap.NextPage == "" {
+			break
+		}
+		page = logMap.NextPage
+	}
+
+	if latestName == "" {
+		return "", ErrNoLogsFound
+	}
+
+	return latestName, nil
+}
+
+func extractJobTimestamp(info *types.JobInfo) time.Time {
+	if info == nil {
+		return time.Time{}
+	}
+	if info.CreationTime != nil {
+		return info.CreationTime.Time
+	}
+	if info.StartTime != nil {
+		return info.StartTime.Time
+	}
+	if info.FinishTime != nil {
+		return info.FinishTime.Time
+	}
+	return time.Time{}
 }
 
 // RemoveLog removes the specified log (jobName) from a service in the cluster
