@@ -320,6 +320,8 @@ The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_P
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.
 
+File downloads display a progress bar whenever the transfer size is known. Use `--no-progress` to disable the bar.
+
 ```
 Usage:
   oscar-cli service get-file SERVICE_NAME STORAGE_PROVIDER REMOTE_FILE LOCAL_FILE [flags]
@@ -329,6 +331,7 @@ Aliases:
 
 Flags:
   -c, --cluster string   set the cluster
+      --no-progress      disable progress bar output
   -h, --help             help for get-file
 
 Global Flags:
@@ -343,6 +346,8 @@ The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_P
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.
 
+File uploads display a progress bar when the local file size is known. Use `--no-progress` to disable the bar.
+
 ```
 Usage:
   oscar-cli service put-file SERVICE_NAME STORAGE_PROVIDER LOCAL_FILE REMOTE_FILE [flags]
@@ -352,6 +357,7 @@ Aliases:
 
 Flags:
   -c, --cluster string   set the cluster
+      --no-progress      disable progress bar output
   -h, --help             help for put-file
 
 Global Flags:
