@@ -19,6 +19,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/grycap/oscar-cli/pkg/config"
@@ -27,8 +28,6 @@ import (
 	"github.com/grycap/oscar/v3/pkg/types"
 	"github.com/spf13/cobra"
 )
-
-const defaultStorageProvider = "minio.default"
 
 func servicePutFileFunc(cmd *cobra.Command, args []string) error {
 	serviceName := args[0]
@@ -108,12 +107,12 @@ If REMOTE_FILE is omitted the command uploads the file to the configured input p
 func parsePutFileArgs(args []string) (provider, localFile, remoteFile string, remoteProvided bool, err error) {
 	switch len(args) {
 	case 1:
-		return defaultStorageProvider, args[0], "", false, nil
+		return storage.DefaultStorageProvider[0], args[0], "", false, nil
 	case 2:
 		if looksLikeStorageProvider(args[0]) {
 			return args[0], args[1], "", false, nil
 		}
-		return defaultStorageProvider, args[0], args[1], true, nil
+		return storage.DefaultStorageProvider[0], args[0], args[1], true, nil
 	case 3:
 		if !looksLikeStorageProvider(args[0]) {
 			return "", "", "", false, fmt.Errorf("invalid storage provider \"%s\"", args[0])
@@ -126,6 +125,9 @@ func parsePutFileArgs(args []string) (provider, localFile, remoteFile string, re
 
 func looksLikeStorageProvider(value string) bool {
 	parts := strings.SplitN(value, types.ProviderSeparator, 2)
+	if len(parts) == 1 && slices.Contains(storage.DefaultStorageProvider, parts[0]) {
+		return true
+	}
 	if len(parts) != 2 {
 		return false
 	}

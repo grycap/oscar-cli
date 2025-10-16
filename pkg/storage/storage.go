@@ -23,6 +23,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -33,6 +34,8 @@ import (
 	"github.com/grycap/oscar-cli/pkg/service"
 	"github.com/grycap/oscar/v3/pkg/types"
 )
+
+var DefaultStorageProvider = []string{"minio.default", "minio"}
 
 func getProvider(c *cluster.Cluster, providerString string, providers *types.StorageProviders) (interface{}, error) {
 	if providerString == "minio" || providerString == "minio.default" {
@@ -84,7 +87,7 @@ func DefaultRemotePath(svc *types.Service, provider, localPath string) (string, 
 
 	providerPath := ""
 	for _, input := range svc.Input {
-		if strings.EqualFold(input.Provider, provider) {
+		if slices.Contains(DefaultStorageProvider, input.Provider) {
 			providerPath = input.Path
 			break
 		}
