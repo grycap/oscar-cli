@@ -108,7 +108,7 @@ func DefaultRemotePath(svc *types.Service, provider, localPath string) (string, 
 }
 
 // GetFile downloads a file from a storage provider
-func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath string) error {
+func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath string, opt *TransferOption) error {
 	// Get the service definition
 	svc, err := service.GetService(c, svcName)
 	if err != nil {
@@ -135,10 +135,32 @@ func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath 
 		splitPath = append(splitPath, "")
 	}
 
+	showProgress := resolveShowProgress(opt)
+
 	switch v := prov.(type) {
 	case types.S3Provider:
+		var total int64
+		if showProgress {
+			head, err := v.GetS3Client().HeadObject(&s3.HeadObjectInput{
+				Bucket: aws.String(splitPath[0]),
+				Key:    aws.String(splitPath[1]),
+			})
+			if err == nil && head.ContentLength != nil {
+				total = *head.ContentLength
+			}
+		}
+
+		progressOptions := newTransferOptions(downloadDescription(remotePath), total, showProgress)
+		bar := buildProgressBar(progressOptions)
+		defer finishProgressBar(bar)
+
+		writer := io.WriterAt(file)
+		if bar != nil {
+			writer = newProgressWriterAt(file, bar)
+		}
+
 		downloader := s3manager.NewDownloaderWithClient(v.GetS3Client())
-		_, err := downloader.Download(file, &s3.GetObjectInput{
+		_, err := downloader.Download(writer, &s3.GetObjectInput{
 			Bucket: aws.String(splitPath[0]),
 			Key:    aws.String(splitPath[1]),
 		})
@@ -146,9 +168,29 @@ func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath 
 			return err
 		}
 	case *types.MinIOProvider:
+		var total int64
+		if showProgress {
+			head, err := v.GetS3Client().HeadObject(&s3.HeadObjectInput{
+				Bucket: aws.String(splitPath[0]),
+				Key:    aws.String(splitPath[1]),
+			})
+			if err == nil && head.ContentLength != nil {
+				total = *head.ContentLength
+			}
+		}
+
+		progressOptions := newTransferOptions(downloadDescription(remotePath), total, showProgress)
+		bar := buildProgressBar(progressOptions)
+		defer finishProgressBar(bar)
+
+		writer := io.WriterAt(file)
+		if bar != nil {
+			writer = newProgressWriterAt(file, bar)
+		}
+
 		// Repeat s3 code for correct type assertion
 		downloader := s3manager.NewDownloaderWithClient(v.GetS3Client())
-		_, err := downloader.Download(file, &s3.GetObjectInput{
+		_, err := downloader.Download(writer, &s3.GetObjectInput{
 			Bucket: aws.String(splitPath[0]),
 			Key:    aws.String(splitPath[1]),
 		})
@@ -161,7 +203,8 @@ func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath 
 		if err != nil {
 			return err
 		}
-		if _, err := io.Copy(file, content); err != nil {
+		writer := io.Writer(file)
+		if _, err := io.Copy(writer, content); err != nil {
 			return err
 		}
 	default:
@@ -172,20 +215,20 @@ func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath 
 }
 
 // PutFile uploads a file to a storage provider
-func PutFile(c *cluster.Cluster, svcName, providerString, localPath, remotePath string) error {
+func PutFile(c *cluster.Cluster, svcName, providerString, localPath, remotePath string, opt *TransferOption) error {
 	svc, err := service.GetService(c, svcName)
 	if err != nil {
 		return err
 	}
-	return putFile(c, svc, providerString, localPath, remotePath)
+	return putFile(c, svc, providerString, localPath, remotePath, opt)
 }
 
 // PutFileWithService uploads a file using a pre-fetched service definition.
-func PutFileWithService(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string) error {
-	return putFile(c, svc, providerString, localPath, remotePath)
+func PutFileWithService(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string, opt *TransferOption) error {
+	return putFile(c, svc, providerString, localPath, remotePath, opt)
 }
 
-func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string) error {
+func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string, opt *TransferOption) error {
 	if svc == nil {
 		return errors.New("service definition not provided")
 	}
@@ -201,11 +244,27 @@ func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, 
 	}
 	defer file.Close()
 
+	fileInfo, err := file.Stat()
+	fileSize := int64(0)
+	if err == nil {
+		fileSize = fileInfo.Size()
+	}
+
 	remotePath = strings.Trim(remotePath, " /")
 	// Split buckets and folders from remotePath
 	splitPath := strings.SplitN(remotePath, "/", 2)
 	if len(splitPath) == 1 {
 		splitPath = append(splitPath, "")
+	}
+
+	showProgress := resolveShowProgress(opt)
+	progressOptions := newTransferOptions(uploadDescription(localPath), fileSize, showProgress)
+	bar := buildProgressBar(progressOptions)
+	defer finishProgressBar(bar)
+
+	reader := io.ReadSeeker(file)
+	if bar != nil {
+		reader = newProgressReadSeeker(file, bar)
 	}
 
 	switch v := prov.(type) {
@@ -214,7 +273,7 @@ func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, 
 		_, err := uploader.Upload(&s3manager.UploadInput{
 			Bucket: aws.String(splitPath[0]),
 			Key:    aws.String(splitPath[1]),
-			Body:   file,
+			Body:   reader,
 		})
 		if err != nil {
 			return err
@@ -224,14 +283,14 @@ func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, 
 		_, err := uploader.Upload(&s3manager.UploadInput{
 			Bucket: aws.String(splitPath[0]),
 			Key:    aws.String(splitPath[1]),
-			Body:   file,
+			Body:   reader,
 		})
 		if err != nil {
 			return err
 		}
 	case *types.OnedataProvider:
 		remotePath = path.Join(v.Space, remotePath)
-		err := v.GetCDMIClient().CreateObject(remotePath, file, true)
+		err := v.GetCDMIClient().CreateObject(remotePath, reader, true)
 		if err != nil {
 			return err
 		}

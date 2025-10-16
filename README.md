@@ -324,6 +324,8 @@ If REMOTE_FILE is not provided, the file is uploaded under the input path config
 If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
 If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
 
+File downloads display a progress bar whenever the transfer size is known. Use `--no-progress` to disable the bar.
+
 ```
 Usage:
   oscar-cli service get-file SERVICE_NAME STORAGE_PROVIDER REMOTE_FILE LOCAL_FILE [flags]
@@ -333,6 +335,7 @@ Aliases:
 
 Flags:
   -c, --cluster string   set the cluster
+      --no-progress      disable progress bar output
   -h, --help             help for get-file
 
 Global Flags:
@@ -349,6 +352,8 @@ and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the serv
 If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
 If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
 
+File uploads display a progress bar when the local file size is known. Use `--no-progress` to disable the bar.
+
 ```
 Usage:
   oscar-cli service put-file SERVICE_NAME [STORAGE_PROVIDER] LOCAL_FILE [REMOTE_FILE] [flags]
@@ -358,6 +363,7 @@ Aliases:
 
 Flags:
   -c, --cluster string   set the cluster
+      --no-progress      disable progress bar output
   -h, --help             help for put-file
 
 Global Flags:

@@ -34,7 +34,17 @@ func serviceGetFileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	err = storage.GetFile(conf.Oscar[cluster], args[0], args[1], args[2], args[3])
+	noProgress, err := cmd.Flags().GetBool("no-progress")
+	if err != nil {
+		return err
+	}
+
+	var transferOpt *storage.TransferOption
+	if noProgress {
+		transferOpt = &storage.TransferOption{ShowProgress: false}
+	}
+
+	err = storage.GetFile(conf.Oscar[cluster], args[0], args[1], args[2], args[3], transferOpt)
 	if err != nil {
 		return err
 	}
@@ -57,6 +67,7 @@ and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the serv
 	}
 
 	serviceGetFileCmd.Flags().StringP("cluster", "c", "", "set the cluster")
+	serviceGetFileCmd.Flags().Bool("no-progress", false, "disable progress bar output")
 
 	return serviceGetFileCmd
 }

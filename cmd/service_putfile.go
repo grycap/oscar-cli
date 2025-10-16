@@ -53,6 +53,16 @@ func servicePutFileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	noProgress, err := cmd.Flags().GetBool("no-progress")
+	if err != nil {
+		return err
+	}
+
+	var transferOpt *storage.TransferOption
+	if noProgress {
+		transferOpt = &storage.TransferOption{ShowProgress: false}
+	}
+
 	svc, err := service.GetService(conf.Oscar[cluster], serviceName)
 	if err != nil {
 		return err
@@ -65,7 +75,7 @@ func servicePutFileFunc(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	err = storage.PutFileWithService(conf.Oscar[cluster], svc, provider, localFile, remoteFile)
+	err = storage.PutFileWithService(conf.Oscar[cluster], svc, provider, localFile, remoteFile, transferOpt)
 	if err != nil {
 		return err
 	}
@@ -90,6 +100,7 @@ If REMOTE_FILE is omitted the command uploads the file to the configured input p
 	}
 
 	servicePutFileCmd.Flags().StringP("cluster", "c", "", "set the cluster")
+	servicePutFileCmd.Flags().Bool("no-progress", false, "disable progress bar output")
 
 	return servicePutFileCmd
 }
