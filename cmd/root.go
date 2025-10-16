@@ -62,5 +62,6 @@ func init() {
 	rootCmd.AddCommand(makeVersionCmd())
 	rootCmd.AddCommand(makeClusterCmd())
 	rootCmd.AddCommand(makeServiceCmd())
+	rootCmd.AddCommand(makeHubCmd())
 	rootCmd.AddCommand(makeApplyCmd())
 }

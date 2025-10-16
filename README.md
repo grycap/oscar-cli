@@ -32,6 +32,9 @@ The documentation is available on [OSCAR's web for CLI](https://docs.oscar.gryca
     - [info](#info)
     - [list](#list)
     - [remove](#remove)
+  - [hub](#hub)
+    - [list](#list-2)
+    - [deploy](#deploy)
   - [service](#service)
     - [get](#get)
     - [list](#list-1)
@@ -163,6 +166,56 @@ Flags:
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
+
+### hub
+
+Browse curated service definitions published in OSCAR Hub.
+
+#### Subcommands
+
+##### list
+
+List curated OSCAR services available in the Hub.
+
+```
+Usage:
+  oscar-cli hub list [flags]
+
+Aliases:
+  list, ls
+
+Flags:
+      --json          print the list in JSON format
+      --owner string  GitHub owner that hosts the curated services (default "grycap")
+      --path string   subdirectory inside the repository that contains the services
+      --ref string    Git reference (branch, tag, or commit) to query (default "main")
+      --repo string   GitHub repository that hosts the curated services (default "oscar-hub")
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
+
+##### deploy
+
+Deploy a curated OSCAR service into a configured cluster.
+
+```
+Usage:
+  oscar-cli hub deploy SERVICE-SLUG [flags]
+
+Flags:
+  -c, --cluster string  set the cluster
+      --owner string    GitHub owner that hosts the curated services (default "grycap")
+      --path string     subdirectory inside the repository that contains the services
+      --ref string      Git reference (branch, tag, or commit) to query (default "main")
+  -n, --name string     override the OSCAR service name during deployment
+      --repo string     GitHub repository that hosts the curated services (default "oscar-hub")
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
+
+Default curated source: https://github.com/grycap/oscar-hub/tree/main
 
 ### service
 
