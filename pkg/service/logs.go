@@ -17,7 +17,9 @@ limitations under the License.
 package service
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -59,14 +61,35 @@ func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse
 	if err := cluster.CheckStatusCode(res); err != nil {
 		return logMap, err
 	}
-
-	// Decode the response body into the logMap
-	err = json.NewDecoder(res.Body).Decode(&logMap)
+	// Read the response body
+	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		return logMap, err
 	}
+	jobs := map[string]*types.JobInfo{}
+	jobsResponse := JobsResponse{}
+	// Try to decode the response body into the jobsResponse
+	err = json.NewDecoder(bytes.NewReader(body)).Decode(&jobsResponse)
+	if err != nil {
+		fmt.Println("Error decoding jobsResponse:", err)
+		return jobsResponse, err
+	}
+	// If jobsResponse.Jobs is empty, (new version not jobs or old version cluster)
+	if len(jobsResponse.Jobs) == 0 {
+		err = json.NewDecoder(bytes.NewReader(body)).Decode(&jobs)
+		// If jobs exists we are in new version with not jobs
+		// If not exists we are in old version
+		if _, ok := jobs["jobs"]; ok {
+			return jobsResponse, err
+		} else {
+			jobsResponse = JobsResponse{Jobs: jobs, NextPage: "", RemainingJob: nil}
+			return jobsResponse, err
+		}
 
-	return logMap, nil
+	}
+	//New version with jobs
+	return jobsResponse, nil
+
 }
 
 // GetLogs get the logs from a service's job
