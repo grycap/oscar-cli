@@ -22,6 +22,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -73,6 +74,37 @@ func getProvider(c *cluster.Cluster, providerString string, providers *types.Sto
 	}
 
 	return prov, nil
+}
+
+// DefaultRemotePath builds the remote path for an upload when only the provider's configured path is available.
+func DefaultRemotePath(svc *types.Service, provider, localPath string) (string, error) {
+	if svc == nil {
+		return "", errors.New("service definition not provided")
+	}
+
+	providerPath := ""
+	for _, input := range svc.Input {
+		if strings.EqualFold(input.Provider, provider) {
+			providerPath = input.Path
+			break
+		}
+	}
+
+	if strings.TrimSpace(providerPath) == "" {
+		return "", fmt.Errorf("service \"%s\" does not define an input path for storage provider \"%s\"", svc.Name, provider)
+	}
+
+	cleaned := strings.Trim(providerPath, " /")
+	filename := filepath.Base(localPath)
+	if filename == "." || filename == "/" {
+		return "", fmt.Errorf("cannot determine file name for \"%s\"", localPath)
+	}
+
+	if cleaned == "" {
+		return filename, nil
+	}
+
+	return path.Join(cleaned, filename), nil
 }
 
 // GetFile downloads a file from a storage provider
@@ -141,19 +173,28 @@ func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath 
 
 // PutFile uploads a file to a storage provider
 func PutFile(c *cluster.Cluster, svcName, providerString, localPath, remotePath string) error {
-	// Get the service definition
 	svc, err := service.GetService(c, svcName)
 	if err != nil {
 		return err
 	}
+	return putFile(c, svc, providerString, localPath, remotePath)
+}
 
-	// Get the provider (as an interface)
+// PutFileWithService uploads a file using a pre-fetched service definition.
+func PutFileWithService(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string) error {
+	return putFile(c, svc, providerString, localPath, remotePath)
+}
+
+func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string) error {
+	if svc == nil {
+		return errors.New("service definition not provided")
+	}
+
 	prov, err := getProvider(c, providerString, svc.StorageProviders)
 	if err != nil {
 		return err
 	}
 
-	// Read the file
 	file, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("unable to read the file \"%s\"", localPath)
@@ -179,7 +220,6 @@ func PutFile(c *cluster.Cluster, svcName, providerString, localPath, remotePath 
 			return err
 		}
 	case *types.MinIOProvider:
-		// Repeat s3 code for correct type assertion
 		uploader := s3manager.NewUploaderWithClient(v.GetS3Client())
 		_, err := uploader.Upload(&s3manager.UploadInput{
 			Bucket: aws.String(splitPath[0]),

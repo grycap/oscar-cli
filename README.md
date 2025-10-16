@@ -319,6 +319,10 @@ Get a file from a service's storage provider.
 The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.
+If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
+If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
+If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
+If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
 
 ```
 Usage:
@@ -342,10 +346,12 @@ Put a file in a service's storage provider.
 The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.
+If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
+If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
 
 ```
 Usage:
-  oscar-cli service put-file SERVICE_NAME STORAGE_PROVIDER LOCAL_FILE REMOTE_FILE [flags]
+  oscar-cli service put-file SERVICE_NAME [STORAGE_PROVIDER] LOCAL_FILE [REMOTE_FILE] [flags]
 
 Aliases:
   put-file, pf
