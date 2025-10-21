@@ -92,7 +92,7 @@ func makeHubDeployCmd() *cobra.Command {
 	opts := &hubDeployOptions{
 		owner:    "grycap",
 		repo:     "oscar-hub",
-		rootPath: "",
+		rootPath: "crates",
 		ref:      "main",
 	}
 
