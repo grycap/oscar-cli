@@ -75,7 +75,7 @@ func makeHubListCmd() *cobra.Command {
 	opts := &hubListOptions{
 		owner:    "grycap",
 		repo:     "oscar-hub",
-		rootPath: "",
+		rootPath: "crates",
 		ref:      "main",
 	}
 
