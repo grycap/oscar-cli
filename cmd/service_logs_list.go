@@ -43,13 +43,26 @@ func serviceLogsListFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	statusSlice, _ := cmd.Flags().GetStringSlice("status")
-
-	logMap, err := service.ListLogs(conf.Oscar[cluster], args[0])
+	var allLogs map[string]*types.JobInfo
+	logMap, err := service.ListLogs(conf.Oscar[cluster], args[0], "")
 	if err != nil {
 		return err
 	}
+	allLogs = logMap.Jobs
 
-	printLogMap(logMap, statusSlice)
+	for logMap.NextPage != "" {
+		logMap, err = service.ListLogs(conf.Oscar[cluster], args[0], logMap.NextPage)
+
+		// Agregar todos los logs de la siguiente página a allLogs
+		for k, v := range logMap.Jobs {
+			allLogs[k] = v
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	printLogMap(allLogs, statusSlice)
 
 	return nil
 }

@@ -22,7 +22,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func serviceGetFileFunc(cmd *cobra.Command, args []string) error {
+func serviceDeleteFileFunc(cmd *cobra.Command, args []string) error {
 	// Read the config file
 	conf, err := config.ReadConfig(configPath)
 	if err != nil {
@@ -34,17 +34,7 @@ func serviceGetFileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	noProgress, err := cmd.Flags().GetBool("no-progress")
-	if err != nil {
-		return err
-	}
-
-	var transferOpt *storage.TransferOption
-	if noProgress {
-		transferOpt = &storage.TransferOption{ShowProgress: false}
-	}
-
-	err = storage.GetFile(conf.Oscar[cluster], args[0], args[1], args[2], args[3], transferOpt)
+	err = storage.DeleteFile(conf.Oscar[cluster], args[0], args[1], args[2])
 	if err != nil {
 		return err
 	}
@@ -52,22 +42,21 @@ func serviceGetFileFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func makeServiceGetFileCmd() *cobra.Command {
-	serviceGetFileCmd := &cobra.Command{
-		Use:   "get-file SERVICE_NAME STORAGE_PROVIDER REMOTE_FILE LOCAL_FILE",
-		Short: "Get a file from a service's storage provider",
-		Long: `Get a file from a service's storage provider.
-
+func makeServiceDeleteFileCmd() *cobra.Command {
+	servicePutFileCmd := &cobra.Command{
+		Use:   "delete-file SERVICE_NAME STORAGE_PROVIDER  REMOTE_FILE",
+		Short: "Delete a file in a service's storage provider",
+		Long: `Delete a file in a service's storage provider.
+		
 The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.`,
-		Args:    cobra.ExactArgs(4),
-		Aliases: []string{"gf"},
-		RunE:    serviceGetFileFunc,
+		Args:    cobra.MinimumNArgs(3),
+		Aliases: []string{"pf"},
+		RunE:    serviceDeleteFileFunc,
 	}
 
-	serviceGetFileCmd.Flags().StringP("cluster", "c", "", "set the cluster")
-	serviceGetFileCmd.Flags().Bool("no-progress", false, "disable progress bar output")
+	servicePutFileCmd.Flags().StringP("cluster", "c", "", "set the cluster")
 
-	return serviceGetFileCmd
+	return servicePutFileCmd
 }

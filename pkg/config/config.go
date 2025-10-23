@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/user"
 	"path"
@@ -30,9 +32,11 @@ import (
 )
 
 const (
-	defaultConfig   = ".oscar-cli/config.yaml"
-	defaultMemory   = "256Mi"
-	defaultLogLevel = "INFO"
+	defaultConfig      = ".oscar-cli/config.yaml"
+	configPath         = "/system/config"
+	defaultMemory      = "256Mi"
+	defaultLogLevel    = "INFO"
+	defaultClusterName = "default-cluster"
 )
 
 var (
@@ -119,16 +123,17 @@ func (config *Config) writeConfig(configPath string) (err error) {
 }
 
 // AddCluster adds a new cluster to the config
-func (config *Config) AddCluster(configPath string, id string, endpoint string, authUser string, authPassword string, oidcAccountName string, sslVerify bool) error {
+func (config *Config) AddCluster(configPath string, id string, endpoint string, authUser string, authPassword string, oidcAccountName string, oidcRefreshToken string, sslVerify bool) error {
 	// Add (or overwrite) the new cluster
 	config.Oscar[id] = &cluster.Cluster{
-		Endpoint:        endpoint,
-		AuthUser:        authUser,
-		AuthPassword:    authPassword,
-		OIDCAccountName: oidcAccountName,
-		SSLVerify:       sslVerify,
-		Memory:          defaultMemory,
-		LogLevel:        defaultLogLevel,
+		Endpoint:         endpoint,
+		AuthUser:         authUser,
+		AuthPassword:     authPassword,
+		OIDCAccountName:  oidcAccountName,
+		OIDCRefreshToken: oidcRefreshToken,
+		SSLVerify:        sslVerify,
+		Memory:           defaultMemory,
+		LogLevel:         defaultLogLevel,
 	}
 
 	// If there is only one cluster set as default
@@ -175,6 +180,34 @@ func (config *Config) CheckCluster(id string) error {
 	return nil
 }
 
+func (config *Config) GetCluster(default_cluster bool, destinationClusterID string, clusterName string) (string, error) {
+	if default_cluster {
+		err := config.CheckCluster(config.Default)
+		if err != nil {
+			return "", err
+		}
+		return config.Default, nil
+	} else if destinationClusterID != "" {
+		err := config.CheckCluster(destinationClusterID)
+		if err != nil {
+			return "", err
+		}
+		return destinationClusterID, nil
+	} else if clusterName == defaultClusterName {
+		err := config.CheckCluster(config.Default)
+		if err != nil {
+			return "", err
+		}
+		return config.Default, nil
+	}
+	err := config.CheckCluster(clusterName)
+	if err != nil {
+		return "", err
+	}
+	return clusterName, nil
+
+}
+
 // SetDefault set a default cluster in the config file
 func (config *Config) SetDefault(configPath, id string) error {
 	// Check if the cluster id exists
@@ -191,4 +224,33 @@ func (config *Config) SetDefault(configPath, id string) error {
 	}
 
 	return nil
+}
+
+func GetUserConfig(c *cluster.Cluster) (interface{}, error) {
+	getServiceURL, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return nil, cluster.ErrMakingRequest
+	}
+	getServiceURL.Path = path.Join(getServiceURL.Path, configPath)
+	req, err := http.NewRequest(http.MethodGet, getServiceURL.String(), nil)
+	if err != nil {
+		return nil, cluster.ErrMakingRequest
+	}
+
+	res, err := c.GetClient().Do(req)
+	if err != nil {
+		return nil, cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return nil, err
+	}
+	var response interface{}
+	// Decode the response body into the info struct
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
 }

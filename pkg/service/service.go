@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 
 const servicesPath = "/system/services"
 const runPath = "/run"
+const jobPath = "/job"
 
 // FDL represents a Functions Definition Language file
 type FDL struct {
@@ -65,7 +67,7 @@ func ReadFDL(path string) (fdl *FDL, err error) {
 	for _, element := range fdl.Functions.Oscar {
 		for clusterID, svc := range element {
 			// Embed script
-			scriptPath := svc.Script
+			scriptPath := getScriptPath(svc.Script, path)
 			script, err := os.ReadFile(scriptPath)
 			if err != nil {
 				return fdl, fmt.Errorf("cannot load the script \"%s\" of service \"%s\", please check the path", scriptPath, svc.Name)
@@ -281,4 +283,71 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 	}
 
 	return res.Body, nil
+}
+
+// JobService invokes a service asynchronously
+func JobService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
+
+	var jobServiceURL *url.URL
+	if token != "" {
+		jobServiceURL, err = url.Parse(endpoint)
+	} else {
+		jobServiceURL, err = url.Parse(c.Endpoint)
+	}
+
+	if err != nil {
+		return nil, cluster.ErrParsingEndpoint
+	}
+	jobServiceURL.Path = path.Join(jobServiceURL.Path, jobPath, name)
+	// Make the request
+	req, err := http.NewRequest(http.MethodPost, jobServiceURL.String(), input)
+	if err != nil {
+		return nil, cluster.ErrMakingRequest
+	}
+
+	var res *http.Response
+	if token != "" {
+		bearer := "Bearer " + strings.TrimSpace(token)
+		req.Header.Add("Authorization", bearer)
+
+		client := &http.Client{}
+		res, err = client.Do(req)
+	} else {
+
+		// Get the service
+		svc, err := GetService(c, name)
+		if err != nil {
+			return nil, err
+		}
+		// Add service's token if defined (OSCAR >= v2.2.0)
+		if svc.Token != "" {
+			bearer := "Bearer " + strings.TrimSpace(svc.Token)
+			req.Header.Add("Authorization", bearer)
+		}
+		// Update cluster client timeout
+		client := c.GetClient()
+		client.Timeout = time.Second * 300
+
+		// Update client transport to remove basic auth
+		client.Transport = &http.Transport{
+			// Enable/disable ssl verification
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !c.SSLVerify},
+		}
+
+		res, err = client.Do(req)
+	}
+
+	if err != nil {
+		return nil, cluster.ErrSendingRequest
+	}
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return nil, err
+	}
+
+	return res.Body, nil
+}
+
+func getScriptPath(scriptPath string, servicePath string) string {
+	return filepath.Dir(servicePath) + "/" + scriptPath
 }

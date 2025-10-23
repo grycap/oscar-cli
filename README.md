@@ -63,6 +63,7 @@ Aliases:
 
 Flags:
       --config string   set the location of the config file (YAML or JSON)
+  -c, --cluster string  override the cluster id defined in the FDL file
   -h, --help            help for apply
 ```
 
@@ -351,13 +352,14 @@ Get the logs from a service's job.
 
 ```
 Usage:
-  oscar-cli service logs get SERVICE_NAME JOB_NAME [flags]
+  oscar-cli service logs get SERVICE_NAME [JOB_NAME] [flags]
 
 Aliases:
   get, g
 
 Flags:
   -h, --help              help for get
+  -l, --latest            get logs from the most recent job
   -t, --show-timestamps   show timestamps in the logs
 
 Global Flags:
@@ -393,6 +395,12 @@ Get a file from a service's storage provider.
 The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.
+If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
+If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
+If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
+If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
+
+File downloads display a progress bar whenever the transfer size is known. Use `--no-progress` to disable the bar.
 
 ```
 Usage:
@@ -403,6 +411,7 @@ Aliases:
 
 Flags:
   -c, --cluster string   set the cluster
+      --no-progress      disable progress bar output
   -h, --help             help for get-file
 
 Global Flags:
@@ -416,16 +425,21 @@ Put a file in a service's storage provider.
 The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.
+If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
+If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
+
+File uploads display a progress bar when the local file size is known. Use `--no-progress` to disable the bar.
 
 ```
 Usage:
-  oscar-cli service put-file SERVICE_NAME STORAGE_PROVIDER LOCAL_FILE REMOTE_FILE [flags]
+  oscar-cli service put-file SERVICE_NAME [STORAGE_PROVIDER] LOCAL_FILE [REMOTE_FILE] [flags]
 
 Aliases:
   put-file, pf
 
 Flags:
   -c, --cluster string   set the cluster
+      --no-progress      disable progress bar output
   -h, --help             help for put-file
 
 Global Flags:

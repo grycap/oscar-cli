@@ -10,18 +10,18 @@ on:
 
 jobs:
   build-linux-amd64:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout
       uses: actions/checkout@v2
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.21
+        go-version:  1.25
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build --ldflags "-s -w \
@@ -35,18 +35,18 @@ jobs:
         path: oscar-cli
 
   build-linux-arm64:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout
       uses: actions/checkout@v2
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.21
+        go-version:  1.25
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build --ldflags "-s -w \
@@ -60,18 +60,18 @@ jobs:
         path: oscar-cli-arm64
 
   build-windows:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout
       uses: actions/checkout@v2
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.21
+        go-version:  1.25
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build --ldflags "-s -w \
@@ -85,18 +85,18 @@ jobs:
         path: oscar-cli.exe
 
   build-darwin:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout
       uses: actions/checkout@v2
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.21
+        go-version:  1.25
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build --ldflags "-s -w \
@@ -110,18 +110,18 @@ jobs:
         path: oscar-cli-darwin
 
   build-darwin-arm64:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout
       uses: actions/checkout@v2
     - name: Setup go
       uses: actions/setup-go@v2
       with:
-        go-version:  1.21
+        go-version:  1.25
     - name: build
       run: |
         if [[ $GITHUB_REF == refs/tags/* ]]; then
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
         fi
 
         GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build --ldflags "-s -w \
@@ -142,7 +142,7 @@ jobs:
     - build-darwin
     - build-darwin-arm64
     if: github.event_name == 'release'
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - name: Download jobs' artifacts
       uses: actions/download-artifact@v4
