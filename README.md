@@ -35,6 +35,7 @@ The documentation is available on [OSCAR's web for CLI](https://docs.oscar.gryca
   - [hub](#hub)
     - [list](#list-2)
     - [deploy](#deploy)
+    - [validate](#validate)
   - [service](#service)
     - [get](#get)
     - [list](#list-1)
@@ -216,6 +217,27 @@ Global Flags:
 ```
 
 Default curated source: https://github.com/grycap/oscar-hub/tree/main
+
+##### validate
+
+Run the acceptance tests defined in a curated RO-Crate against a deployed service.
+
+```
+Usage:
+  oscar-cli hub validate SERVICE-SLUG [flags]
+
+Flags:
+  -c, --cluster string   set the cluster
+      --local-path string  use a local directory containing the RO-Crate metadata instead of fetching it from GitHub
+      --owner string     GitHub owner that hosts the curated services (default "grycap")
+      --path string      subdirectory inside the repository that contains the services
+      --ref string       Git reference (branch, tag, or commit) to query (default "main")
+  -n, --name string      override the OSCAR service name during validation
+      --repo string      GitHub repository that hosts the curated services (default "oscar-hub")
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
 
 ### service
 
