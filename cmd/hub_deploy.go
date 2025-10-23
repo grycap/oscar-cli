@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar-cli/pkg/config"
@@ -14,12 +16,13 @@ import (
 )
 
 type hubDeployOptions struct {
-	owner    string
-	repo     string
-	rootPath string
-	ref      string
-	apiBase  string
-	name     string
+	owner     string
+	repo      string
+	rootPath  string
+	ref       string
+	apiBase   string
+	name      string
+	localPath string
 }
 
 func (o *hubDeployOptions) applyToClient() []hub.Option {
@@ -50,10 +53,22 @@ func hubDeployFunc(cmd *cobra.Command, args []string, opts *hubDeployOptions) er
 
 	clusterCfg := conf.Oscar[clusterName]
 
-	client := hub.NewClient(opts.applyToClient()...)
-	fdl, err := client.FetchFDL(cmd.Context(), slug)
-	if err != nil {
-		return err
+	var fdl *service.FDL
+
+	if strings.TrimSpace(opts.localPath) != "" {
+		if _, err := os.Stat(opts.localPath); err != nil {
+			return fmt.Errorf("checking local path: %w", err)
+		}
+		fdl, err = hub.LoadLocalFDL(opts.localPath, slug)
+		if err != nil {
+			return err
+		}
+	} else {
+		client := hub.NewClient(opts.applyToClient()...)
+		fdl, err = client.FetchFDL(cmd.Context(), slug)
+		if err != nil {
+			return err
+		}
 	}
 
 	clusterConfig, err := clusterCfg.GetClusterConfig()
@@ -114,6 +129,7 @@ func makeHubDeployCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.ref, "ref", opts.ref, "Git reference (branch, tag, or commit) to query")
 	cmd.Flags().StringVar(&opts.apiBase, "api-base", "", "override the GitHub API base URL")
 	cmd.Flags().StringVarP(&opts.name, "name", "n", "", "override the OSCAR service name during deployment")
+	cmd.Flags().StringVar(&opts.localPath, "local-path", "", "use a local directory containing the RO-Crate metadata instead of fetching it from GitHub")
 	cmd.Flags().StringP("cluster", "c", "", "set the cluster")
 
 	if flag := cmd.Flags().Lookup("api-base"); flag != nil {

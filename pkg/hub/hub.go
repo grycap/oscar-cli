@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -471,6 +474,110 @@ func (c *Client) embedArtifacts(ctx context.Context, repoPath string, fdl *servi
 		}
 	}
 	return nil
+}
+
+// LoadLocalFDL loads an FDL definition from a local directory or file.
+func LoadLocalFDL(localRoot, slug string) (*service.FDL, error) {
+	localRoot = filepath.Clean(localRoot)
+	info, err := os.Stat(localRoot)
+	if err != nil {
+		return nil, fmt.Errorf("checking local path %s: %w", localRoot, err)
+	}
+
+	if !info.IsDir() {
+		ext := strings.ToLower(filepath.Ext(localRoot))
+		if ext == ".yaml" || ext == ".yml" {
+			return readFDLFromFile(localRoot)
+		}
+		return nil, fmt.Errorf("unsupported file %s: expected an FDL (.yaml/.yml)", localRoot)
+	}
+
+	candidates := []string{localRoot, filepath.Join(localRoot, slug)}
+	var lastErr error
+	for _, dir := range candidates {
+		dir = filepath.Clean(dir)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			lastErr = err
+			continue
+		}
+
+		fdlPath, err := selectLocalFDLFile(dir, slug, entries)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return readFDLFromFile(fdlPath)
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+
+	return nil, fmt.Errorf("fdl file not found for %s under %s", slug, localRoot)
+}
+
+func selectLocalFDLFile(dir, slug string, entries []fs.DirEntry) (string, error) {
+	var fallback string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+			if name == slug+".yaml" || name == slug+".yml" {
+				return filepath.Join(dir, name), nil
+			}
+			if fallback == "" {
+				fallback = filepath.Join(dir, name)
+			}
+		}
+	}
+	if fallback != "" {
+		return fallback, nil
+	}
+	return "", fmt.Errorf("fdl file not found in %s", dir)
+}
+
+func readFDLFromFile(path string) (*service.FDL, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read FDL %s: %w", path, err)
+	}
+
+	fdl := &service.FDL{}
+	if err := yaml.Unmarshal(content, fdl); err != nil {
+		return nil, fmt.Errorf("the FDL file %s is not valid, please check its definition", path)
+	}
+
+	baseDir := filepath.Dir(path)
+
+	for _, element := range fdl.Functions.Oscar {
+		for clusterID, svc := range element {
+			if svc == nil {
+				continue
+			}
+
+			scriptPath := svc.Script
+			if !filepath.IsAbs(scriptPath) {
+				scriptPath = filepath.Join(baseDir, scriptPath)
+			}
+			script, err := os.ReadFile(scriptPath)
+			if err != nil {
+				return nil, fmt.Errorf("cannot load the script \"%s\" of service \"%s\", please check the path", svc.Script, svc.Name)
+			}
+			svc.Script = string(script)
+
+			svc.ClusterID = clusterID
+			svc.StorageProviders = fdl.StorageProviders
+			svc.Clusters = fdl.Clusters
+		}
+	}
+
+	return fdl, nil
 }
 
 func findDatasetEntity(entities []map[string]any) map[string]any {

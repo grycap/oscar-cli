@@ -206,6 +206,7 @@ Usage:
 
 Flags:
   -c, --cluster string  set the cluster
+      --local-path string  use a local directory containing the RO-Crate metadata instead of fetching it from GitHub
       --owner string    GitHub owner that hosts the curated services (default "grycap")
       --path string     subdirectory inside the repository that contains the services
       --ref string      Git reference (branch, tag, or commit) to query (default "main")
