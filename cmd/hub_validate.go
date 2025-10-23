@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/grycap/oscar-cli/pkg/config"
@@ -32,6 +33,7 @@ type hubValidateOptions struct {
 	ref      string
 	apiBase  string
 	name     string
+	localPath string
 }
 
 func (o *hubValidateOptions) applyToClient() []hub.Option {
@@ -58,8 +60,14 @@ func hubValidateFunc(cmd *cobra.Command, args []string, opts *hubValidateOptions
 		return err
 	}
 
+	if strings.TrimSpace(opts.localPath) != "" {
+		if _, err := os.Stat(opts.localPath); err != nil {
+			return fmt.Errorf("checking local path: %w", err)
+		}
+	}
+
 	client := hub.NewClient(opts.applyToClient()...)
-	results, err := client.ValidateService(cmd.Context(), args[0], conf.Oscar[clusterID], opts.name)
+	results, err := client.ValidateService(cmd.Context(), args[0], conf.Oscar[clusterID], opts.name, opts.localPath)
 	if err != nil {
 		return err
 	}
@@ -131,6 +139,7 @@ func makeHubValidateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.ref, "ref", opts.ref, "Git reference (branch, tag, or commit) to query")
 	cmd.Flags().StringVar(&opts.apiBase, "api-base", "", "override the GitHub API base URL")
 	cmd.Flags().StringVarP(&opts.name, "name", "n", "", "override the OSCAR service name during validation")
+	cmd.Flags().StringVar(&opts.localPath, "local-path", "", "use a local directory containing the RO-Crate metadata instead of fetching it from GitHub")
 	if flag := cmd.Flags().Lookup("api-base"); flag != nil {
 		flag.Hidden = true
 	}

@@ -9,7 +9,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,7 +42,7 @@ type inputDirective struct {
 }
 
 // ValidateService downloads the RO-Crate metadata for the provided slug, runs its acceptance tests against the cluster and returns the aggregated results.
-func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *cluster.Cluster, serviceNameOverride string) ([]AcceptanceResult, error) {
+func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *cluster.Cluster, serviceNameOverride string, localRoot string) ([]AcceptanceResult, error) {
 	if strings.TrimSpace(slug) == "" {
 		return nil, errors.New("service slug cannot be empty")
 	}
@@ -48,11 +50,26 @@ func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *c
 		return nil, errors.New("cluster configuration is required")
 	}
 
-	repoPath := c.serviceRepoPath(slug)
-	metadataPath := path.Join(repoPath, metadataFile)
-	rawMetadata, err := c.getFile(ctx, metadataPath)
-	if err != nil {
-		return nil, err
+	var (
+		repoPath       string
+		localCratePath string
+		rawMetadata    []byte
+		err            error
+	)
+
+	localRoot = strings.TrimSpace(localRoot)
+	if localRoot != "" {
+		rawMetadata, localCratePath, err = loadLocalMetadata(localRoot, slug)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		repoPath = c.serviceRepoPath(slug)
+		metadataPath := path.Join(repoPath, metadataFile)
+		rawMetadata, err = c.getFile(ctx, metadataPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	crate, err := ParseROCrate(rawMetadata)
@@ -68,7 +85,7 @@ func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *c
 	results := make([]AcceptanceResult, 0, len(tests))
 	for _, test := range tests {
 		res := AcceptanceResult{Test: test}
-		output, runErr := c.executeAcceptanceTest(ctx, repoPath, slug, test, clusterCfg, serviceNameOverride)
+		output, runErr := c.executeAcceptanceTest(ctx, repoPath, slug, test, clusterCfg, serviceNameOverride, localCratePath)
 		if runErr != nil {
 			res.Err = runErr
 			res.Passed = false
@@ -87,7 +104,7 @@ func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *c
 	return results, nil
 }
 
-func (c *Client) executeAcceptanceTest(ctx context.Context, repoPath, slug string, test AcceptanceTest, clusterCfg *cluster.Cluster, serviceNameOverride string) (string, error) {
+func (c *Client) executeAcceptanceTest(ctx context.Context, repoPath, slug string, test AcceptanceTest, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string) (string, error) {
 	directive, serviceName, err := parseAcceptanceCommand(test.Command)
 	if err != nil {
 		return "", fmt.Errorf("parsing command for test %s: %w", test.ID, err)
@@ -112,13 +129,13 @@ func (c *Client) executeAcceptanceTest(ctx context.Context, repoPath, slug strin
 		if !ok {
 			return "", fmt.Errorf("input %q referenced in command not found in RO-Crate supply list", directive.Value)
 		}
-		payload, err = fetchSupplyContent(ctx, c, repoPath, input)
+		payload, err = fetchSupplyContent(ctx, c, repoPath, localCratePath, input)
 		if err != nil {
 			return "", err
 		}
 	case inputModeText:
 		if input, ok := supplyMap[directive.Value]; ok {
-			payload, err = fetchSupplyContent(ctx, c, repoPath, input)
+			payload, err = fetchSupplyContent(ctx, c, repoPath, localCratePath, input)
 			if err != nil {
 				return "", err
 			}
@@ -137,7 +154,7 @@ func (c *Client) executeAcceptanceTest(ctx context.Context, repoPath, slug strin
 	return string(responseBytes), nil
 }
 
-func fetchSupplyContent(ctx context.Context, client *Client, repoPath string, input TestInput) ([]byte, error) {
+func fetchSupplyContent(ctx context.Context, client *Client, repoPath string, localCratePath string, input TestInput) ([]byte, error) {
 	candidates := make([]string, 0, 2)
 	if url := strings.TrimSpace(input.URL); url != "" {
 		candidates = append(candidates, url)
@@ -148,6 +165,11 @@ func fetchSupplyContent(ctx context.Context, client *Client, repoPath string, in
 
 	var lastErr error
 	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+
 		if isAbsoluteURL(candidate) {
 			data, err := downloadExternalResource(ctx, candidate)
 			if err == nil {
@@ -157,15 +179,28 @@ func fetchSupplyContent(ctx context.Context, client *Client, repoPath string, in
 			continue
 		}
 
-		data, err := readFromRepository(ctx, client, repoPath, candidate)
-		if err == nil {
-			return data, nil
+		if localCratePath != "" {
+			data, err := readFromLocal(localCratePath, candidate)
+			if err == nil {
+				return data, nil
+			}
+			if errors.Is(err, errEscapesServiceDirectory) {
+				return nil, err
+			}
+			lastErr = err
 		}
-		// If the candidate was URL and failed due to escaping, propagate immediately.
-		if errors.Is(err, errEscapesServiceDirectory) {
-			return nil, err
+
+		if repoPath != "" && client != nil {
+			data, err := readFromRepository(ctx, client, repoPath, candidate)
+			if err == nil {
+				return data, nil
+			}
+			// If the candidate was URL and failed due to escaping, propagate immediately.
+			if errors.Is(err, errEscapesServiceDirectory) {
+				return nil, err
+			}
+			lastErr = err
 		}
-		lastErr = err
 	}
 
 	if lastErr != nil {
@@ -177,7 +212,45 @@ func fetchSupplyContent(ctx context.Context, client *Client, repoPath string, in
 
 var errEscapesServiceDirectory = errors.New("path escapes service directory")
 
+func loadLocalMetadata(localRoot, slug string) ([]byte, string, error) {
+	localRoot = filepath.Clean(localRoot)
+
+	info, err := os.Stat(localRoot)
+	if err != nil {
+		return nil, "", fmt.Errorf("checking local path %s: %w", localRoot, err)
+	}
+
+	candidates := make([]string, 0, 2)
+	if info.IsDir() {
+		candidates = append(candidates, localRoot, filepath.Join(localRoot, slug))
+	} else {
+		// Allow pointing directly to the metadata file.
+		candidates = append(candidates, filepath.Dir(localRoot))
+		if strings.EqualFold(filepath.Base(localRoot), metadataFile) {
+			data, err := os.ReadFile(localRoot)
+			if err != nil {
+				return nil, "", fmt.Errorf("reading metadata file %s: %w", localRoot, err)
+			}
+			return data, filepath.Dir(localRoot), nil
+		}
+	}
+
+	for _, dir := range candidates {
+		dir = filepath.Clean(dir)
+		metadataPath := filepath.Join(dir, metadataFile)
+		data, err := os.ReadFile(metadataPath)
+		if err == nil {
+			return data, dir, nil
+		}
+	}
+
+	return nil, "", fmt.Errorf("ro-crate metadata not found for %s under %s", slug, localRoot)
+}
+
 func readFromRepository(ctx context.Context, client *Client, repoPath, relative string) ([]byte, error) {
+	if strings.TrimSpace(repoPath) == "" {
+		return nil, fmt.Errorf("repository path not available")
+	}
 	clean := path.Clean(strings.TrimSpace(relative))
 	if clean == "." || clean == "" {
 		return nil, fmt.Errorf("invalid input path %q", relative)
@@ -190,6 +263,23 @@ func readFromRepository(ctx context.Context, client *Client, repoPath, relative 
 	joined = strings.Trim(joined, "/")
 
 	return client.getFile(ctx, joined)
+}
+
+func readFromLocal(baseDir, relative string) ([]byte, error) {
+	clean := filepath.Clean(strings.TrimSpace(relative))
+	if clean == "." || clean == "" {
+		return nil, fmt.Errorf("invalid input path %q", relative)
+	}
+	if strings.HasPrefix(clean, "..") {
+		return nil, fmt.Errorf("%w: %s", errEscapesServiceDirectory, relative)
+	}
+
+	fullPath := filepath.Join(baseDir, clean)
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func downloadExternalResource(ctx context.Context, rawURL string) ([]byte, error) {
