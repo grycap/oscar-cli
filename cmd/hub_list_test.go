@@ -11,16 +11,16 @@ import (
 func TestHubListCommandOutputsTable(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/repos/grycap/oscar-hub/contents":
+		case "/repos/grycap/oscar-hub/contents", "/repos/grycap/oscar-hub/contents/crates":
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`[
 				{"name":"cowsay","path":"cowsay","type":"dir"},
 				{"name":"broken","path":"broken","type":"dir"}
 			]`))
-		case "/repos/grycap/oscar-hub/contents/cowsay/ro-crate-metadata.json":
+		case "/repos/grycap/oscar-hub/contents/cowsay/ro-crate-metadata.json", "/repos/grycap/oscar-hub/contents/crates/cowsay/ro-crate-metadata.json":
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(cliSampleROCrate("Cowsay", "OSCAR Team")))
-		case "/repos/grycap/oscar-hub/contents/broken/ro-crate-metadata.json":
+		case "/repos/grycap/oscar-hub/contents/broken/ro-crate-metadata.json", "/repos/grycap/oscar-hub/contents/crates/broken/ro-crate-metadata.json":
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("{ invalid json"))
 		default:

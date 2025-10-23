@@ -15,8 +15,11 @@ func makeHubCmd() *cobra.Command {
 		Run:     hubFunc,
 	}
 
+	hubCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
+
 	hubCmd.AddCommand(makeHubListCmd())
 	hubCmd.AddCommand(makeHubDeployCmd())
+	hubCmd.AddCommand(makeHubValidateCmd())
 
 	return hubCmd
 }

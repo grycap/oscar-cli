@@ -124,6 +124,14 @@ func NewClient(opts ...Option) *Client {
 	return client
 }
 
+func (c *Client) serviceRepoPath(slug string) string {
+	repoPath := strings.Trim(path.Join(c.rootPath, slug), "/")
+	if repoPath == "" {
+		repoPath = slug
+	}
+	return repoPath
+}
+
 // Service contains the curated information extracted from OSCAR Hub metadata.
 type Service struct {
 	Slug           string `json:"slug"`
@@ -345,14 +353,14 @@ func (c *Client) readAPIError(res *http.Response) error {
 }
 
 func parseROCrate(raw []byte) (Service, error) {
-	var crate struct {
-		Graph []map[string]any `json:"@graph"`
+	crate, err := ParseROCrate(raw)
+	if err != nil {
+		return Service{}, err
 	}
-	if err := json.Unmarshal(raw, &crate); err != nil {
-		return Service{}, fmt.Errorf("unmarshal ro-crate: %w", err)
-	}
-	if len(crate.Graph) == 0 {
-		return Service{}, errors.New("ro-crate graph is empty")
+
+	dataset, err := crate.datasetNode()
+	if err != nil {
+		return Service{}, fmt.Errorf("dataset entity not found in ro-crate: %w", err)
 	}
 
 	entities := make(map[string]map[string]any, len(crate.Graph))
@@ -361,11 +369,6 @@ func parseROCrate(raw []byte) (Service, error) {
 		if id != "" {
 			entities[id] = entity
 		}
-	}
-
-	dataset := findDatasetEntity(crate.Graph)
-	if dataset == nil {
-		return Service{}, errors.New("dataset entity not found in ro-crate")
 	}
 
 	service := Service{}
@@ -392,10 +395,7 @@ func parseROCrate(raw []byte) (Service, error) {
 
 // FetchFDL downloads the FDL definition and embeds referenced artifacts for the provided slug.
 func (c *Client) FetchFDL(ctx context.Context, slug string) (*service.FDL, error) {
-	repoPath := strings.Trim(path.Join(c.rootPath, slug), "/")
-	if repoPath == "" {
-		repoPath = slug
-	}
+	repoPath := c.serviceRepoPath(slug)
 
 	entries, err := c.listEntries(ctx, repoPath)
 	if err != nil {

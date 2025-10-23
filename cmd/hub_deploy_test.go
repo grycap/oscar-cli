@@ -31,12 +31,12 @@ functions:
 
 	gitServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/repos/grycap/oscar-hub/contents/cowsay":
+		case "/repos/grycap/oscar-hub/contents/cowsay", "/repos/grycap/oscar-hub/contents/crates/cowsay":
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `[{"name":"cowsay.yaml","path":"cowsay/cowsay.yaml","type":"file"},{"name":"script.sh","path":"cowsay/script.sh","type":"file"}]`)
-		case "/repos/grycap/oscar-hub/contents/cowsay/cowsay.yaml":
+		case "/repos/grycap/oscar-hub/contents/cowsay/cowsay.yaml", "/repos/grycap/oscar-hub/contents/crates/cowsay/cowsay.yaml":
 			fmt.Fprint(w, fdlContent)
-		case "/repos/grycap/oscar-hub/contents/cowsay/script.sh":
+		case "/repos/grycap/oscar-hub/contents/cowsay/script.sh", "/repos/grycap/oscar-hub/contents/crates/cowsay/script.sh":
 			fmt.Fprint(w, scriptContent)
 		default:
 			t.Fatalf("unexpected github request: %s", r.URL.Path)
