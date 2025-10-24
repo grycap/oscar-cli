@@ -395,24 +395,28 @@ Get a file from a service's storage provider.
 The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.
-If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
-If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
-If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
-If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
+If STORAGE_PROVIDER is not provided, the first output provider defined in the service is used.
+Passing `--download-latest-into[=PATH]` fetches the newest object detected under the provided remote path.
+When `PATH` refers to a directory (or ends with a path separator) the file is saved there keeping its original filename.
+If `PATH` points to a file (for example, has an extension), that exact local filename is used.
+If `REMOTE_PATH` is omitted while using `--download-latest-into`, the default output path configured for that provider is used instead.
 
 File downloads display a progress bar whenever the transfer size is known. Use `--no-progress` to disable the bar.
+On success the command prints the absolute path to the downloaded file.
 
 ```
 Usage:
-  oscar-cli service get-file SERVICE_NAME STORAGE_PROVIDER REMOTE_FILE LOCAL_FILE [flags]
+  oscar-cli service get-file SERVICE_NAME [STORAGE_PROVIDER] [REMOTE_PATH] [LOCAL_FILE] [flags]
 
 Aliases:
   get-file, gf
 
 Flags:
-  -c, --cluster string   set the cluster
-      --no-progress      disable progress bar output
-  -h, --help             help for get-file
+  -c, --cluster string        set the cluster
+  -h, --help                  help for get-file
+      --download-latest-into[=PATH]
+                              download the most recent file (optionally place it inside PATH when it is a directory, or use PATH as the exact filename)
+      --no-progress           disable progress bar output
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)

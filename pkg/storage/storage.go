@@ -118,6 +118,15 @@ func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath 
 		return err
 	}
 
+	return GetFileWithService(c, svc, providerString, remotePath, localPath, opt)
+}
+
+// GetFileWithService downloads a file using a pre-fetched service definition.
+func GetFileWithService(c *cluster.Cluster, svc *types.Service, providerString, remotePath, localPath string, opt *TransferOption) error {
+	if svc == nil {
+		return errors.New("service definition not provided")
+	}
+
 	// Get the provider (as an interface)
 	prov, err := getProvider(c, providerString, svc.StorageProviders)
 	if err != nil {
@@ -215,6 +224,130 @@ func GetFile(c *cluster.Cluster, svcName, providerString, remotePath, localPath 
 	}
 
 	return nil
+}
+
+// DefaultOutputProvider returns the first output storage provider defined in the service.
+func DefaultOutputProvider(svc *types.Service) (string, error) {
+	if svc == nil {
+		return "", errors.New("service definition not provided")
+	}
+
+	for _, output := range svc.Output {
+		provider := strings.TrimSpace(output.Provider)
+		if provider != "" {
+			return provider, nil
+		}
+	}
+
+	return "", fmt.Errorf("service \"%s\" does not define any output storage providers", svc.Name)
+}
+
+// DefaultOutputPath returns the configured output path for the provided storage provider.
+func DefaultOutputPath(svc *types.Service, provider string) (string, error) {
+	if svc == nil {
+		return "", errors.New("service definition not provided")
+	}
+
+	provider = strings.TrimSpace(provider)
+	var firstPath string
+
+	for _, output := range svc.Output {
+		outputProvider := strings.TrimSpace(output.Provider)
+		outputPath := strings.TrimSpace(output.Path)
+
+		if outputPath == "" {
+			continue
+		}
+
+		if firstPath == "" {
+			firstPath = outputPath
+		}
+
+		if provider == "" || outputProvider == provider {
+			return outputPath, nil
+		}
+	}
+
+	if provider == "" && firstPath != "" {
+		return firstPath, nil
+	}
+
+	if provider != "" {
+		return "", fmt.Errorf("service \"%s\" does not define an output path for storage provider \"%s\"", svc.Name, provider)
+	}
+
+	return "", fmt.Errorf("service \"%s\" does not define any output paths", svc.Name)
+}
+
+// ResolveLatestRemotePath returns the path to the most recently modified file under the provided remote path.
+func ResolveLatestRemotePath(c *cluster.Cluster, svc *types.Service, providerString, basePath string) (string, error) {
+	if svc == nil {
+		return "", errors.New("service definition not provided")
+	}
+
+	basePath = strings.Trim(basePath, " /")
+	if basePath == "" {
+		return "", errors.New("remote path cannot be empty")
+	}
+
+	prov, err := getProvider(c, providerString, svc.StorageProviders)
+	if err != nil {
+		return "", err
+	}
+
+	splitPath := strings.SplitN(basePath, "/", 2)
+	if len(splitPath) == 1 {
+		splitPath = append(splitPath, "")
+	}
+
+	bucket := strings.TrimSpace(splitPath[0])
+	if bucket == "" {
+		return "", errors.New("remote path must include the bucket name")
+	}
+	prefix := strings.TrimLeft(splitPath[1], "/")
+
+	var s3Client *s3.S3
+	switch v := prov.(type) {
+	case types.S3Provider:
+		s3Client = v.GetS3Client()
+	case *types.MinIOProvider:
+		s3Client = v.GetS3Client()
+	default:
+		return "", errors.New("--download-latest-into is only supported for S3 or MinIO providers")
+	}
+
+	input := &s3.ListObjectsInput{
+		Bucket: aws.String(bucket),
+	}
+	if prefix != "" {
+		input.Prefix = aws.String(prefix)
+	}
+
+	var latest *s3.Object
+	err = s3Client.ListObjectsPages(input, func(page *s3.ListObjectsOutput, last bool) bool {
+		for _, obj := range page.Contents {
+			if obj == nil || obj.Key == nil || obj.LastModified == nil {
+				continue
+			}
+			if obj.Size != nil && *obj.Size == 0 && strings.HasSuffix(*obj.Key, "/") {
+				continue
+			}
+			if latest == nil || obj.LastModified.After(*latest.LastModified) {
+				latest = obj
+			}
+		}
+		return true
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if latest == nil || latest.Key == nil {
+		return "", fmt.Errorf("no files found under \"%s\"", basePath)
+	}
+
+	key := strings.TrimLeft(*latest.Key, "/")
+	return path.Join(bucket, key), nil
 }
 
 // PutFile uploads a file to a storage provider

@@ -57,6 +57,9 @@ func ReadFDL(path string) (fdl *FDL, err error) {
 	if err != nil {
 		return fdl, errors.New("cannot read the file, please check the path")
 	}
+	// Change \r\n line ending to \n to avoid YAML unmarshal errors
+	safeContent := strings.Replace(string(content), "\r\n", "\n", -1)
+	content = []byte(safeContent)
 
 	// Unmarshal the FDL
 	err = yaml.Unmarshal(content, fdl)
