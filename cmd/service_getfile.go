@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/service"
@@ -152,7 +153,7 @@ and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the serv
 If STORAGE_PROVIDER is omitted the first output provider defined in the service will be used.
 When used together with --download-latest-into, REMOTE_PATH can be omitted and the default
 output path of the selected provider will be employed.`,
-		Args:    cobra.MinimumNArgs(1),
+		Args:    cobra.RangeArgs(1, 4),
 		Aliases: []string{"gf"},
 		RunE:    serviceGetFileFunc,
 	}
@@ -175,24 +176,35 @@ func parseGetFileArgs(args []string, allowRemoteOmit bool) (provider, remotePath
 		if !allowRemoteOmit {
 			return "", "", "", false, false, fmt.Errorf("invalid number of arguments")
 		}
+		// --download-latest-into use case, no args
 		return "", "", "", false, false, nil
 	case 1:
 		if looksLikeStorageProvider(args[0]) {
 			if !allowRemoteOmit {
 				return "", "", "", false, false, fmt.Errorf("REMOTE_PATH argument is required")
 			}
+			// --download-latest-into use case, with provider only
 			return args[0], "", "", false, false, nil
 		}
-		return "", args[0], "", true, false, nil
+		// only REMOTE_PATH provided
+		remoteFile := strings.Split(args[0], "/")
+		remoteBase := remoteFile[len(remoteFile)-1]
+		return "", args[0], remoteBase, true, true, nil
 	case 2:
+		// use of STORAGE_PROVIDER and REMOTE_PATH
 		if looksLikeStorageProvider(args[0]) {
-			return args[0], args[1], "", true, false, nil
+			remoteFile := strings.Split(args[1], "/")
+			remoteBase := remoteFile[len(remoteFile)-1]
+			return args[0], args[1], remoteBase, true, true, nil
 		}
+		// use of  REMOTE_PATH and LOCAL_FILE. Storage provider omitted
 		return "", args[0], args[1], true, true, nil
 	case 3:
+		// Storage provider is wrong
 		if !looksLikeStorageProvider(args[0]) {
 			return "", "", "", false, false, fmt.Errorf("invalid storage provider \"%s\"", args[0])
 		}
+		// All arguments provided
 		return args[0], args[1], args[2], true, true, nil
 	default:
 		return "", "", "", false, false, fmt.Errorf("invalid number of arguments")
