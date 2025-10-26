@@ -25,56 +25,70 @@ func TestAcceptanceTestsIncludesStructuredSteps(t *testing.T) {
 			"value": "Characters: 44",
 			"encodingFormat": "image/png"
 			},
-			{
-				"@id": "#acceptance",
-				"@type": "HowTo",
-				"name": "Composite Test",
-				"supply": [{ "@id": "#supply-input" }],
-				"step": [
-					{
-						"@type": "HowToStep",
-						"position": 1,
-						"potentialAction": {
-							"@type": "ConsumeAction",
-							"name": "run",
-							"object": { "@id": "input.txt" },
-							"result": { "@id": "#expected-output" },
-							"additionalProperty": [
-								{
-									"@type": "PropertyValue",
-									"propertyID": "commandTemplate",
-									"value": "oscar-cli service run demo -i {input}"
-								}
-							]
-						}
-					},
-					{
-						"@type": "HowToStep",
-						"position": 2,
-						"timeRequired": "PT5S"
-					},
-					{
-						"@type": "HowToStep",
-						"position": 3,
-						"potentialAction": {
-							"@type": "TransferAction",
-							"name": "get-file",
-							"result": { "@id": "#expected-output" },
-							"additionalProperty": [
-								{
-									"@type": "PropertyValue",
-									"propertyID": "commandTemplate",
-									"value": "oscar-cli service get-file demo --download-latest-into {destination}"
-								}
-							]
-						}
-					}
-				]
-			},
+				{
+					"@id": "#acceptance",
+					"@type": "HowTo",
+					"name": "Composite Test",
+					"supply": [{ "@id": "#supply-input" }],
+					"step": [
+						{ "@id": "#step-run" },
+						{ "@id": "#step-wait" },
+						{ "@id": "#step-get" }
+					]
+				},
+				{
+					"@id": "#step-run",
+					"@type": "HowToStep",
+					"position": 1,
+					"potentialAction": { "@id": "#action-run" }
+				},
+				{
+					"@id": "#step-wait",
+					"@type": "HowToStep",
+					"position": 2,
+					"timeRequired": "PT5S"
+				},
+				{
+					"@id": "#step-get",
+					"@type": "HowToStep",
+					"position": 3,
+					"potentialAction": { "@id": "#action-get" }
+				},
 			{
 				"@id": "#supply-input",
 				"@type": "HowToSupply",
 				"item": { "@id": "input.txt" }
+			},
+			{
+				"@id": "#action-run",
+				"@type": "ConsumeAction",
+				"name": "run",
+				"object": { "@id": "input.txt" },
+				"result": { "@id": "#expected-output" },
+				"additionalProperty": [
+					{ "@id": "#command-template-run" }
+				]
+			},
+			{
+				"@id": "#action-get",
+				"@type": "TransferAction",
+				"name": "get-file",
+				"result": { "@id": "#expected-output" },
+				"additionalProperty": [
+					{ "@id": "#command-template-get" }
+				]
+			},
+			{
+				"@id": "#command-template-run",
+				"@type": "PropertyValue",
+				"propertyID": "commandTemplate",
+				"value": "oscar-cli service run demo -i {input}"
+			},
+			{
+				"@id": "#command-template-get",
+				"@type": "PropertyValue",
+				"propertyID": "commandTemplate",
+				"value": "oscar-cli service get-file demo --download-latest-into {destination}"
 			}
 		]
 	}`)

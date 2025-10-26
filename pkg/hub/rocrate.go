@@ -290,7 +290,17 @@ func (c *ROCrate) parseStructuredSteps(testID string, node map[string]interface{
 	for idx, raw := range stepNodes {
 		stepMap, ok := raw.(map[string]interface{})
 		if !ok {
-			continue
+			if id, ok := raw.(string); ok {
+				if resolved := c.resolveEntityMap(id); resolved != nil {
+					stepMap = resolved
+				} else {
+					continue
+				}
+			} else {
+				continue
+			}
+		} else if resolved := c.resolveEntityMap(stepMap); resolved != nil {
+			stepMap = resolved
 		}
 
 		stepID := readString(stepMap, "@id")
@@ -308,8 +318,8 @@ func (c *ROCrate) parseStructuredSteps(testID string, node map[string]interface{
 			RawNode: stepMap,
 		}
 
-		if paMap := readMap(stepMap, "potentialAction"); paMap != nil {
-			step.Command = commandTemplate(paMap["additionalProperty"])
+		if paMap := c.resolveEntityMap(stepMap["potentialAction"]); paMap != nil {
+			step.Command = c.commandTemplate(paMap["additionalProperty"])
 			step.ExpectedSubstring = c.resolveExpectedSubstring(paMap)
 			step.ExpectedMedia = c.resolveExpectedMediaTypes(paMap)
 			step.Inputs = append(step.Inputs, c.stepInputs(paMap)...)
@@ -417,7 +427,7 @@ func (c *ROCrate) stepInputs(action map[string]interface{}) []TestInput {
 
 func (c *ROCrate) buildParsedCommand(action map[string]interface{}, inputs []TestInput) (*parsedCommand, bool) {
 	name := strings.ToLower(strings.TrimSpace(readString(action, "name")))
-	template := commandTemplate(action["additionalProperty"])
+	template := c.commandTemplate(action["additionalProperty"])
 	objectIDs := extractIDs(action["object"])
 
 	switch name {
@@ -494,22 +504,68 @@ func readMap(node map[string]interface{}, key string) map[string]interface{} {
 	return nil
 }
 
-func commandTemplate(raw interface{}) string {
-	switch v := raw.(type) {
-	case map[string]interface{}:
-		if propertyID := strings.TrimSpace(readString(v, "propertyID")); propertyID == "commandTemplate" {
-			return readString(v, "value")
-		}
-	case []interface{}:
-		for _, item := range v {
-			if m, ok := item.(map[string]interface{}); ok {
-				if propertyID := strings.TrimSpace(readString(m, "propertyID")); propertyID == "commandTemplate" {
-					return readString(m, "value")
-				}
+func (c *ROCrate) commandTemplate(raw interface{}) string {
+	nodes := c.propertyNodes(raw)
+	for _, node := range nodes {
+		if propertyID := strings.TrimSpace(readString(node, "propertyID")); strings.EqualFold(propertyID, "commandTemplate") {
+			if value := strings.TrimSpace(readString(node, "value")); value != "" {
+				return value
 			}
 		}
 	}
 	return ""
+}
+
+func (c *ROCrate) resolveEntityMap(value interface{}) map[string]interface{} {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case string:
+		if id := strings.TrimSpace(v); id != "" {
+			return c.entity(id)
+		}
+	case map[string]interface{}:
+		if id := strings.TrimSpace(readString(v, "@id")); id != "" {
+			if node := c.entity(id); node != nil {
+				return node
+			}
+		}
+		return v
+	case []interface{}:
+		for _, item := range v {
+			if resolved := c.resolveEntityMap(item); resolved != nil {
+				return resolved
+			}
+		}
+	}
+	return nil
+}
+
+func (c *ROCrate) propertyNodes(raw interface{}) []map[string]interface{} {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case string:
+		if id := strings.TrimSpace(v); id != "" {
+			if node := c.entity(id); node != nil {
+				return []map[string]interface{}{node}
+			}
+		}
+	case map[string]interface{}:
+		if id := strings.TrimSpace(readString(v, "@id")); id != "" {
+			if node := c.entity(id); node != nil {
+				return []map[string]interface{}{node}
+			}
+		}
+		return []map[string]interface{}{v}
+	case []interface{}:
+		var nodes []map[string]interface{}
+		for _, item := range v {
+			nodes = append(nodes, c.propertyNodes(item)...)
+		}
+		return nodes
+	}
+	return nil
 }
 
 func parsePosition(value interface{}) int {
