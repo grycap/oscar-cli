@@ -27,12 +27,12 @@ import (
 )
 
 type hubValidateOptions struct {
-	owner    string
-	repo     string
-	rootPath string
-	ref      string
-	apiBase  string
-	name     string
+	owner     string
+	repo      string
+	rootPath  string
+	ref       string
+	apiBase   string
+	name      string
 	localPath string
 }
 
@@ -66,44 +66,19 @@ func hubValidateFunc(cmd *cobra.Command, args []string, opts *hubValidateOptions
 		}
 	}
 
-	client := hub.NewClient(opts.applyToClient()...)
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Acceptance tests for %s\n", args[0])
+
+	client := hub.NewClient(append(opts.applyToClient(), hub.WithLogWriter(out))...)
 	results, err := client.ValidateService(cmd.Context(), args[0], conf.Oscar[clusterID], opts.name, opts.localPath)
 	if err != nil {
 		return err
 	}
 
-	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "Acceptance tests for %s (%d)\n", args[0], len(results))
-
 	passed := 0
 	for _, result := range results {
-		name := result.Test.Name
-		if strings.TrimSpace(name) == "" {
-			name = result.Test.ID
-		}
-
-		status := "FAIL"
 		if result.Passed {
-			status = "PASS"
 			passed++
-		}
-		fmt.Fprintf(out, "- [%s] %s\n", status, name)
-
-		if result.Err != nil {
-			fmt.Fprintf(out, "  Error: %v\n", result.Err)
-			continue
-		}
-
-		if result.Details != "" {
-			fmt.Fprintf(out, "  Details: %s\n", result.Details)
-		}
-
-		if strings.TrimSpace(result.Test.ExpectedSubstring) != "" {
-			fmt.Fprintf(out, "  Expect: %q\n", result.Test.ExpectedSubstring)
-		}
-
-		if strings.TrimSpace(result.Output) != "" {
-			fmt.Fprintf(out, "  Output preview: %s\n", result.Output)
 		}
 	}
 

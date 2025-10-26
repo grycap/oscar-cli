@@ -4,7 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -33,6 +38,19 @@ type AcceptanceTest struct {
 	Inputs             []TestInput
 	RawNode            map[string]interface{}
 	AdditionalSubjects []string
+	Steps              []AcceptanceStep
+}
+
+// AcceptanceStep represents an executable action within an acceptance test.
+type AcceptanceStep struct {
+	ID                string
+	Name              string
+	Command           string
+	ExpectedSubstring string
+	Inputs            []TestInput
+	RawNode           map[string]interface{}
+	ParsedCommand     *parsedCommand
+	ExpectedMedia     []string
 }
 
 // TestInput describes an input artifact referenced by an acceptance test.
@@ -45,7 +63,17 @@ type TestInput struct {
 
 // AcceptanceResult stores the outcome of an executed acceptance test.
 type AcceptanceResult struct {
-	Test    AcceptanceTest
+	Test        AcceptanceTest
+	Passed      bool
+	Output      string
+	Details     string
+	Err         error
+	StepResults []AcceptanceStepResult
+}
+
+// AcceptanceStepResult stores the outcome of an executed acceptance step.
+type AcceptanceStepResult struct {
+	Step    AcceptanceStep
 	Passed  bool
 	Output  string
 	Details string
@@ -107,23 +135,39 @@ func (c *ROCrate) AcceptanceTests() ([]AcceptanceTest, error) {
 		expected := readString(node, "expectedSubstring")
 		name := readString(node, "name")
 		additional := extractIDs(node["subjectOf"])
+		inputs := c.testInputs(node)
 
-		inputRefs := extractIDs(node["supply"])
-		inputs := make([]TestInput, 0, len(inputRefs))
-		for _, inputID := range inputRefs {
-			resNode, ok := c.index[inputID]
-			if !ok {
-				continue
-			}
-			inputs = append(inputs, TestInput{
-				ID:             inputID,
-				Name:           readString(resNode, "name"),
-				URL:            firstNonEmpty(readString(resNode, "contentUrl"), readString(resNode, "url")),
-				EncodingFormat: readString(resNode, "encodingFormat"),
+		steps := make([]AcceptanceStep, 0, 1+len(extractIDs(node["hasPart"])))
+		if strings.TrimSpace(command) != "" {
+			steps = append(steps, AcceptanceStep{
+				ID:                subjectID,
+				Name:              name,
+				Command:           command,
+				ExpectedSubstring: expected,
+				Inputs:            inputs,
+				RawNode:           node,
 			})
 		}
 
-		tests = append(tests, AcceptanceTest{
+		for _, partID := range extractIDs(node["hasPart"]) {
+			partNode, ok := c.index[partID]
+			if !ok {
+				continue
+			}
+			step := AcceptanceStep{
+				ID:                partID,
+				Name:              readString(partNode, "name"),
+				Command:           readString(partNode, "command"),
+				ExpectedSubstring: readString(partNode, "expectedSubstring"),
+				Inputs:            c.testInputs(partNode),
+				RawNode:           partNode,
+			}
+			steps = append(steps, step)
+		}
+
+		steps = append(steps, c.parseStructuredSteps(subjectID, node)...)
+
+		test := AcceptanceTest{
 			ID:                 subjectID,
 			Name:               name,
 			Command:            command,
@@ -131,13 +175,40 @@ func (c *ROCrate) AcceptanceTests() ([]AcceptanceTest, error) {
 			Inputs:             inputs,
 			RawNode:            node,
 			AdditionalSubjects: additional,
-		})
+			Steps:              steps,
+		}
+
+		if test.ExpectedSubstring == "" {
+			for _, step := range test.Steps {
+				if strings.TrimSpace(step.ExpectedSubstring) != "" {
+					test.ExpectedSubstring = step.ExpectedSubstring
+					break
+				}
+			}
+		}
+
+		tests = append(tests, test)
 	}
 
 	if len(tests) == 0 {
 		return nil, ErrNoAcceptanceTests
 	}
 	return tests, nil
+}
+
+func (c *ROCrate) testInputs(node map[string]interface{}) []TestInput {
+	inputRefs := extractIDs(node["supply"])
+	if len(inputRefs) == 0 {
+		return nil
+	}
+
+	inputs := make([]TestInput, 0, len(inputRefs))
+	for _, inputID := range inputRefs {
+		if input, ok := c.buildTestInput(inputID); ok {
+			inputs = append(inputs, input)
+		}
+	}
+	return inputs
 }
 
 func (c *ROCrate) entity(id string) map[string]interface{} {
@@ -195,4 +266,384 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func (c *ROCrate) parseStructuredSteps(testID string, node map[string]interface{}) []AcceptanceStep {
+	rawSteps := node["step"]
+	if rawSteps == nil {
+		return nil
+	}
+
+	stepNodes := normalizeToSlice(rawSteps)
+	if len(stepNodes) == 0 {
+		return nil
+	}
+
+	type positionedStep struct {
+		pos  int
+		step AcceptanceStep
+		idx  int
+	}
+
+	parsed := make([]positionedStep, 0, len(stepNodes))
+
+	for idx, raw := range stepNodes {
+		stepMap, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		stepID := readString(stepMap, "@id")
+		if strings.TrimSpace(stepID) == "" {
+			stepID = fmt.Sprintf("%s#step%d", testID, idx+1)
+		}
+
+		stepName := firstNonEmpty(readString(stepMap, "name"), readString(stepMap, "text"), stepID)
+
+		position := parsePosition(stepMap["position"])
+
+		step := AcceptanceStep{
+			ID:      stepID,
+			Name:    stepName,
+			RawNode: stepMap,
+		}
+
+		if paMap := readMap(stepMap, "potentialAction"); paMap != nil {
+			step.Command = commandTemplate(paMap["additionalProperty"])
+			step.ExpectedSubstring = c.resolveExpectedSubstring(paMap)
+			step.ExpectedMedia = c.resolveExpectedMediaTypes(paMap)
+			step.Inputs = append(step.Inputs, c.stepInputs(paMap)...)
+
+			if parsedCmd, ok := c.buildParsedCommand(paMap, step.Inputs); ok {
+				step.ParsedCommand = parsedCmd
+			}
+		} else if duration := strings.TrimSpace(readString(stepMap, "timeRequired")); duration != "" {
+			if parsedCmd, err := buildWaitCommand(duration); err == nil {
+				step.ParsedCommand = parsedCmd
+				step.Command = fmt.Sprintf("wait %s", parsedCmd.WaitDuration)
+			}
+		}
+
+		parsed = append(parsed, positionedStep{
+			pos:  position,
+			step: step,
+			idx:  idx,
+		})
+	}
+
+	sort.SliceStable(parsed, func(i, j int) bool {
+		if parsed[i].pos == parsed[j].pos {
+			return parsed[i].idx < parsed[j].idx
+		}
+		if parsed[i].pos == 0 {
+			return false
+		}
+		if parsed[j].pos == 0 {
+			return true
+		}
+		return parsed[i].pos < parsed[j].pos
+	})
+
+	steps := make([]AcceptanceStep, 0, len(parsed))
+	for _, item := range parsed {
+		steps = append(steps, item.step)
+	}
+	return steps
+}
+
+func (c *ROCrate) resolveExpectedSubstring(action map[string]interface{}) string {
+	expectedIDs := extractIDs(action["result"])
+	for _, id := range expectedIDs {
+		if node := c.entity(id); node != nil {
+			if value := readString(node, "value"); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func (c *ROCrate) resolveExpectedMediaTypes(action map[string]interface{}) []string {
+	expectedIDs := extractIDs(action["result"])
+	if len(expectedIDs) == 0 {
+		return nil
+	}
+
+	var media []string
+	for _, id := range expectedIDs {
+		node := c.entity(id)
+		if node == nil {
+			continue
+		}
+
+		raw := node["encodingFormat"]
+		switch v := raw.(type) {
+		case string:
+			if mt := strings.TrimSpace(v); mt != "" {
+				media = append(media, mt)
+			}
+		case []interface{}:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					if mt := strings.TrimSpace(s); mt != "" {
+						media = append(media, mt)
+					}
+				}
+			}
+		}
+	}
+
+	if len(media) == 0 {
+		return nil
+	}
+	return media
+}
+
+func (c *ROCrate) stepInputs(action map[string]interface{}) []TestInput {
+	objectIDs := extractIDs(action["object"])
+	if len(objectIDs) == 0 {
+		return nil
+	}
+	inputs := make([]TestInput, 0, len(objectIDs))
+	for _, id := range objectIDs {
+		if input, ok := c.buildTestInput(id); ok {
+			inputs = append(inputs, input)
+		} else if strings.TrimSpace(id) != "" {
+			inputs = append(inputs, TestInput{ID: id})
+		}
+	}
+	return inputs
+}
+
+func (c *ROCrate) buildParsedCommand(action map[string]interface{}, inputs []TestInput) (*parsedCommand, bool) {
+	name := strings.ToLower(strings.TrimSpace(readString(action, "name")))
+	template := commandTemplate(action["additionalProperty"])
+	objectIDs := extractIDs(action["object"])
+
+	switch name {
+	case "run":
+		directive := inputDirective{Mode: inputModeFile}
+		if len(objectIDs) > 0 {
+			directive.Value = objectIDs[0]
+		} else if len(inputs) > 0 {
+			directive.Value = inputs[0].ID
+		}
+		return &parsedCommand{
+			Kind:         stepCommandRun,
+			RunDirective: directive,
+		}, true
+	case "put-file":
+		local := ""
+		if len(objectIDs) > 0 {
+			local = objectIDs[0]
+		} else if len(inputs) > 0 {
+			local = inputs[0].ID
+		}
+		return &parsedCommand{
+			Kind:      stepCommandPutFile,
+			LocalPath: local,
+		}, true
+	case "get-file":
+		return &parsedCommand{
+			Kind:            stepCommandGetFile,
+			LatestRequested: strings.Contains(template, "--download-latest-into"),
+		}, true
+	}
+
+	if strings.Contains(template, "service run") {
+		return &parsedCommand{
+			Kind:         stepCommandRun,
+			RunDirective: inputDirective{Mode: inputModeFile, Value: firstObjectID(objectIDs, inputs)},
+		}, true
+	}
+	if strings.Contains(template, "put-file") {
+		return &parsedCommand{
+			Kind:      stepCommandPutFile,
+			LocalPath: firstObjectID(objectIDs, inputs),
+		}, true
+	}
+	if strings.Contains(template, "get-file") {
+		return &parsedCommand{
+			Kind:            stepCommandGetFile,
+			LatestRequested: strings.Contains(template, "--download-latest-into"),
+		}, true
+	}
+
+	return nil, false
+}
+
+func firstObjectID(objectIDs []string, inputs []TestInput) string {
+	if len(objectIDs) > 0 && strings.TrimSpace(objectIDs[0]) != "" {
+		return objectIDs[0]
+	}
+	if len(inputs) > 0 {
+		return inputs[0].ID
+	}
+	return ""
+}
+
+func readMap(node map[string]interface{}, key string) map[string]interface{} {
+	value, ok := node[key]
+	if !ok {
+		return nil
+	}
+	switch t := value.(type) {
+	case map[string]interface{}:
+		return t
+	}
+	return nil
+}
+
+func commandTemplate(raw interface{}) string {
+	switch v := raw.(type) {
+	case map[string]interface{}:
+		if propertyID := strings.TrimSpace(readString(v, "propertyID")); propertyID == "commandTemplate" {
+			return readString(v, "value")
+		}
+	case []interface{}:
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				if propertyID := strings.TrimSpace(readString(m, "propertyID")); propertyID == "commandTemplate" {
+					return readString(m, "value")
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func parsePosition(value interface{}) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case float64:
+		if v == 0 {
+			return 0
+		}
+		return int(math.Round(v))
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func buildWaitCommand(raw string) (*parsedCommand, error) {
+	duration, err := parseISODuration(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &parsedCommand{
+		Kind:         stepCommandWait,
+		WaitDuration: duration,
+	}, nil
+}
+
+var isoDurationRegex = regexp.MustCompile(`^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$`)
+
+func parseISODuration(value string) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	matches := isoDurationRegex.FindStringSubmatch(value)
+	if matches == nil {
+		return 0, fmt.Errorf("unsupported ISO 8601 duration: %s", value)
+	}
+
+	var (
+		days, hours, minutes, seconds int
+		err                           error
+	)
+
+	if matches[1] != "" {
+		days, err = strconv.Atoi(matches[1])
+		if err != nil {
+			return 0, err
+		}
+	}
+	if matches[2] != "" {
+		hours, err = strconv.Atoi(matches[2])
+		if err != nil {
+			return 0, err
+		}
+	}
+	if matches[3] != "" {
+		minutes, err = strconv.Atoi(matches[3])
+		if err != nil {
+			return 0, err
+		}
+	}
+	if matches[4] != "" {
+		seconds, err = strconv.Atoi(matches[4])
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	total := (time.Duration(days) * 24 * time.Hour) +
+		(time.Duration(hours) * time.Hour) +
+		(time.Duration(minutes) * time.Minute) +
+		(time.Duration(seconds) * time.Second)
+	return total, nil
+}
+
+func normalizeToSlice(value interface{}) []interface{} {
+	switch v := value.(type) {
+	case []interface{}:
+		return v
+	case map[string]interface{}:
+		return []interface{}{v}
+	default:
+		return nil
+	}
+}
+
+func (c *ROCrate) buildTestInput(id string) (TestInput, bool) {
+	if strings.TrimSpace(id) == "" {
+		return TestInput{}, false
+	}
+
+	node := c.entity(id)
+	if node == nil {
+		return TestInput{ID: id}, true
+	}
+
+	if nodeHasType(node, "HowToSupply") {
+		itemIDs := extractIDs(node["item"])
+		for _, itemID := range itemIDs {
+			if input, ok := c.buildTestInput(itemID); ok {
+				return input, true
+			}
+		}
+		return TestInput{}, false
+	}
+
+	return TestInput{
+		ID:             id,
+		Name:           readString(node, "name"),
+		URL:            firstNonEmpty(readString(node, "contentUrl"), readString(node, "url")),
+		EncodingFormat: readString(node, "encodingFormat"),
+	}, true
+}
+
+func nodeHasType(node map[string]interface{}, target string) bool {
+	rawType, ok := node["@type"]
+	if !ok {
+		return false
+	}
+	switch v := rawType.(type) {
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), target)
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				if strings.EqualFold(strings.TrimSpace(s), target) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

@@ -46,6 +46,7 @@ type Client struct {
 	ref        string
 	baseAPI    string
 	httpClient *http.Client
+	logWriter  io.Writer
 }
 
 // Option mutates the client configuration.
@@ -107,6 +108,15 @@ func WithHTTPClient(httpClient *http.Client) Option {
 	}
 }
 
+// WithLogWriter sets the writer used to log validation progress.
+func WithLogWriter(w io.Writer) Option {
+	return func(c *Client) {
+		if w != nil {
+			c.logWriter = w
+		}
+	}
+}
+
 // NewClient builds a client with sensible defaults.
 func NewClient(opts ...Option) *Client {
 	client := &Client{
@@ -124,7 +134,87 @@ func NewClient(opts ...Option) *Client {
 		opt(client)
 	}
 
+	if client.logWriter == nil {
+		client.logWriter = io.Discard
+	}
+
 	return client
+}
+
+func (c *Client) logf(format string, args ...interface{}) {
+	if c.logWriter == nil {
+		return
+	}
+	fmt.Fprintf(c.logWriter, format, args...)
+}
+
+func (c *Client) logAcceptanceResult(res AcceptanceResult) {
+	if c.logWriter == nil {
+		return
+	}
+
+	name := strings.TrimSpace(res.Test.Name)
+	if name == "" {
+		name = res.Test.ID
+	}
+
+	status := "FAIL"
+	if res.Passed {
+		status = "PASS"
+	}
+
+	fmt.Fprintf(c.logWriter, "- [%s] %s\n", status, name)
+
+	if len(res.StepResults) == 0 {
+		if res.Err != nil {
+			fmt.Fprintf(c.logWriter, "  Error: %v\n", res.Err)
+			return
+		}
+
+		if strings.TrimSpace(res.Details) != "" {
+			fmt.Fprintf(c.logWriter, "  Details: %s\n", res.Details)
+		}
+
+		if strings.TrimSpace(res.Test.ExpectedSubstring) != "" {
+			fmt.Fprintf(c.logWriter, "  Expect: %q\n", res.Test.ExpectedSubstring)
+		}
+
+		if strings.TrimSpace(res.Output) != "" {
+			fmt.Fprintf(c.logWriter, "  Output preview: %s\n", res.Output)
+		}
+		return
+	}
+
+	for _, step := range res.StepResults {
+		stepName := strings.TrimSpace(step.Step.Name)
+		if stepName == "" {
+			stepName = step.Step.ID
+		}
+
+		stepStatus := "FAIL"
+		if step.Passed {
+			stepStatus = "PASS"
+		}
+
+		fmt.Fprintf(c.logWriter, "  - [%s] %s\n", stepStatus, stepName)
+
+		if step.Err != nil {
+			fmt.Fprintf(c.logWriter, "    Error: %v\n", step.Err)
+			continue
+		}
+
+		if strings.TrimSpace(step.Details) != "" {
+			fmt.Fprintf(c.logWriter, "    Details: %s\n", step.Details)
+		}
+
+		if strings.TrimSpace(step.Step.ExpectedSubstring) != "" {
+			fmt.Fprintf(c.logWriter, "    Expect: %q\n", step.Step.ExpectedSubstring)
+		}
+
+		if strings.TrimSpace(step.Output) != "" {
+			fmt.Fprintf(c.logWriter, "    Output preview: %s\n", step.Output)
+		}
+	}
 }
 
 func (c *Client) serviceRepoPath(slug string) string {
