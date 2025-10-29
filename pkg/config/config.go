@@ -237,7 +237,12 @@ func GetUserConfig(c *cluster.Cluster) (interface{}, error) {
 		return nil, cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return nil, cluster.ErrSendingRequest
 	}
