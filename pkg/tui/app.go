@@ -138,7 +138,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 		AddItem(state.detailsView, 0, 3, false).
 		AddItem(state.statusContainer, 4, 0, false)
 
-	state.statusView.SetText(statusHelpText)
+	state.statusView.SetText(state.decorateStatusText(statusHelpText))
 
 	pages := tview.NewPages()
 	pages.AddPage("main", root, true, true)
@@ -672,12 +672,13 @@ func (s *uiState) setStatus(message string) {
 	s.mutex.Lock()
 	started := s.started
 	s.mutex.Unlock()
+	text := s.decorateStatusText(message)
 	if !started {
-		s.statusView.SetText(message)
+		s.statusView.SetText(text)
 		return
 	}
 	s.queueUpdate(func() {
-		s.statusView.SetText(message)
+		s.statusView.SetText(text)
 	})
 }
 
@@ -1046,7 +1047,7 @@ func (s *uiState) hideAutoRefreshPrompt() {
 		container.Clear()
 		container.SetTitle("Status")
 		container.AddItem(s.statusView, 0, 1, false)
-		s.statusView.SetText(statusHelpText)
+		s.statusView.SetText(s.decorateStatusText(statusHelpText))
 	})
 	if focus != nil {
 		s.app.SetFocus(focus)
@@ -1142,6 +1143,27 @@ func (s *uiState) stopAutoRefresh() bool {
 		cancel()
 	}
 	return active
+}
+
+func (s *uiState) decorateStatusText(base string) string {
+	text := base
+	s.mutex.Lock()
+	active := s.autoRefreshActive
+	period := s.autoRefreshPeriod
+	s.mutex.Unlock()
+	if active && period > 0 {
+		seconds := int(period / time.Second)
+		if seconds <= 0 {
+			seconds = 1
+		}
+		indicator := fmt.Sprintf("[cyan]Auto refresh: every %d second(s)", seconds)
+		if strings.TrimSpace(text) == "" {
+			text = indicator
+		} else {
+			text = text + "\n" + indicator
+		}
+	}
+	return text
 }
 
 func (s *uiState) showServiceLogs() {
@@ -1426,7 +1448,7 @@ func (s *uiState) hideSearch() {
 		container.Clear()
 		container.SetTitle("Status")
 		container.AddItem(s.statusView, 0, 1, false)
-		s.statusView.SetText(statusHelpText)
+		s.statusView.SetText(s.decorateStatusText(statusHelpText))
 	})
 	if focus != nil {
 		s.app.SetFocus(focus)
