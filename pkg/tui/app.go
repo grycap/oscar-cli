@@ -15,6 +15,7 @@ import (
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar-cli/pkg/storage"
 	"github.com/grycap/oscar/v3/pkg/types"
 )
 
@@ -23,10 +24,24 @@ const legendText = `[yellow]Navigation[-]
   ←/→ or Tab  Switch pane
 
 [yellow]Actions[-]
-  r  Refresh services
+  r  Refresh current view
   d  Delete selected service
+  b  Switch to buckets view
+  s  Switch to services view
   q  Quit
   ?  Toggle this help`
+
+type panelMode int
+
+const (
+	modeServices panelMode = iota
+	modeBuckets
+)
+
+var (
+	serviceHeaders = []string{"Name", "Image", "CPU", "Memory"}
+	bucketHeaders  = []string{"Name", "Visibility", "Owner"}
+)
 
 // Run launches the interactive terminal user interface.
 func Run(ctx context.Context, conf *config.Config) error {
@@ -48,12 +63,13 @@ func Run(ctx context.Context, conf *config.Config) error {
 		mutex:          &sync.Mutex{},
 		currentCluster: "",
 		failedClusters: make(map[string]string),
+		mode:           modeServices,
 	}
 
 	state.statusView.SetBorder(true)
 	state.statusView.SetTitle("Status")
 	state.detailsView.SetBorder(true)
-	state.detailsView.SetTitle("Service Details")
+	state.detailsView.SetTitle("Details")
 	state.detailsView.SetText("Select a service to inspect details")
 	state.serviceTable.SetBorder(true)
 	state.serviceTable.SetTitle("Services")
@@ -85,10 +101,10 @@ func Run(ctx context.Context, conf *config.Config) error {
 	})
 
 	state.serviceTable.SetSelectionChangedFunc(func(row, column int) {
-		state.handleServiceSelection(row, false)
+		state.handleSelection(row, false)
 	})
 	state.serviceTable.SetSelectedFunc(func(row, column int) {
-		state.handleServiceSelection(row, true)
+		state.handleSelection(row, true)
 	})
 
 	layout := tview.NewFlex().
@@ -101,7 +117,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 		AddItem(state.detailsView, 12, 1, false).
 		AddItem(state.statusView, 3, 1, false)
 
-	state.statusView.SetText("[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete · [::b]?[::-] Help · [::b]←/→[::-] Switch pane")
+	state.statusView.SetText("[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane")
 
 	pages := tview.NewPages()
 	pages.AddPage("main", root, true, true)
@@ -141,6 +157,12 @@ func Run(ctx context.Context, conf *config.Config) error {
 			return nil
 		case 'r', 'R':
 			state.refreshCurrent(ctx)
+			return nil
+		case 'b', 'B':
+			state.switchToBuckets(ctx)
+			return nil
+		case 's', 'S':
+			state.switchToServices(ctx)
 			return nil
 		case 'd', 'D':
 			if app.GetFocus() == state.serviceTable {
@@ -206,6 +228,11 @@ type uiState struct {
 	legendVisible   bool
 	confirmVisible  bool
 	savedFocus      tview.Primitive
+	mode            panelMode
+	bucketInfos     []*storage.BucketInfo
+	bucketCancel    context.CancelFunc
+	bucketSeq       int
+	bucketCluster   string
 }
 
 func (s *uiState) selectCluster(ctx context.Context, name string) {
@@ -217,6 +244,12 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 	if s.loadCancel != nil {
 		s.loadCancel()
 		s.loadCancel = nil
+		s.refreshing = false
+		s.loadingCluster = ""
+	}
+	if s.bucketCancel != nil {
+		s.bucketCancel()
+		s.bucketCancel = nil
 	}
 	if s.detailTimer != nil {
 		s.detailTimer.Stop()
@@ -224,18 +257,44 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 	}
 	s.lastSelection = ""
 	s.currentCluster = name
-	if errMsg, blocked := s.failedClusters[name]; blocked {
-		s.mutex.Unlock()
+	mode := s.mode
+	errMsg, blocked := s.failedClusters[name]
+	s.mutex.Unlock()
+
+	if mode == modeBuckets {
+		if name == "" {
+			s.setStatus("[red]Select a cluster to view buckets")
+			s.queueUpdate(func() {
+				s.showBucketMessage("Select a cluster to view buckets")
+				s.detailsView.SetText("Select a bucket to inspect details")
+			})
+			return
+		}
 		s.queueUpdate(func() {
-			s.showServiceMessage("Unable to load services")
+			s.showBucketMessage("Loading buckets…")
+			s.detailsView.SetText("Select a bucket to inspect details")
 		})
-		s.setStatus(fmt.Sprintf("[red]%s", errMsg))
-		s.mutex.Lock()
-		s.currentServices = nil
-		s.mutex.Unlock()
+		go s.loadBuckets(ctx, name, false)
 		return
 	}
-	s.mutex.Unlock()
+
+	if name == "" {
+		s.queueUpdate(func() {
+			s.showServiceMessage("Select a cluster to view services")
+			s.detailsView.SetText("Select a service to inspect details")
+		})
+		return
+	}
+
+	if blocked {
+		s.setStatus(fmt.Sprintf("[red]%s", errMsg))
+		s.queueUpdate(func() {
+			s.showServiceMessage("Unable to load services")
+			s.detailsView.SetText("Select a service to inspect details")
+		})
+		go s.loadServices(ctx, name, true)
+		return
+	}
 
 	s.queueUpdate(func() {
 		s.detailsView.SetText("Select a service to inspect details")
@@ -247,12 +306,116 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 func (s *uiState) refreshCurrent(ctx context.Context) {
 	s.mutex.Lock()
 	name := s.currentCluster
+	mode := s.mode
 	delete(s.failedClusters, name)
 	s.mutex.Unlock()
 	if name == "" {
 		return
 	}
-	go s.loadServices(ctx, name, true)
+	if mode == modeBuckets {
+		go s.loadBuckets(ctx, name, true)
+	} else {
+		go s.loadServices(ctx, name, true)
+	}
+}
+
+func (s *uiState) switchToBuckets(ctx context.Context) {
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	if s.mode == modeBuckets {
+		s.mutex.Unlock()
+		return
+	}
+	s.mode = modeBuckets
+	if s.loadCancel != nil {
+		s.loadCancel()
+		s.loadCancel = nil
+		s.refreshing = false
+		s.loadingCluster = ""
+	}
+	if s.detailTimer != nil {
+		s.detailTimer.Stop()
+		s.detailTimer = nil
+	}
+	s.lastSelection = ""
+	s.mutex.Unlock()
+
+	clusterName := s.currentCluster
+	if clusterName == "" {
+		s.setStatus("[red]Select a cluster to view buckets")
+		s.queueUpdate(func() {
+			s.showBucketMessage("Select a cluster to view buckets")
+			s.detailsView.SetText("Select a bucket to inspect details")
+		})
+		return
+	}
+
+	s.queueUpdate(func() {
+		s.showBucketMessage("Loading buckets…")
+		s.detailsView.SetText("Select a bucket to inspect details")
+	})
+
+	s.mutex.Lock()
+	cached := s.bucketInfos
+	cachedCluster := s.bucketCluster
+	s.mutex.Unlock()
+	if len(cached) > 0 && cachedCluster == clusterName {
+		s.renderBucketTable(cached)
+		s.setStatus(fmt.Sprintf("[green]Loaded %d bucket(s) for %s", len(cached), clusterName))
+		return
+	}
+
+	go s.loadBuckets(ctx, clusterName, false)
+}
+
+func (s *uiState) switchToServices(ctx context.Context) {
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	if s.mode == modeServices {
+		s.mutex.Unlock()
+		return
+	}
+	s.mode = modeServices
+	if s.bucketCancel != nil {
+		s.bucketCancel()
+		s.bucketCancel = nil
+	}
+	if s.detailTimer != nil {
+		s.detailTimer.Stop()
+		s.detailTimer = nil
+	}
+	s.lastSelection = ""
+	services := s.currentServices
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		s.detailsView.SetText("Select a service to inspect details")
+	})
+
+	if len(services) > 0 {
+		s.renderServiceTable(services)
+		s.setStatus(fmt.Sprintf("[green]Loaded %d service(s) for %s", len(services), clusterName))
+		return
+	}
+
+	if clusterName == "" {
+		s.queueUpdate(func() {
+			s.showServiceMessage("Select a cluster to view services")
+		})
+		return
+	}
+
+	s.queueUpdate(func() {
+		s.showServiceMessage("Loading…")
+	})
+	go s.loadServices(ctx, clusterName, true)
 }
 
 func (s *uiState) loadServices(ctx context.Context, name string, force bool) {
@@ -344,38 +507,91 @@ func (s *uiState) loadServices(ctx context.Context, name string, force bool) {
 		return
 	}
 
-	s.queueUpdate(func() {
-		setServiceTableHeader(s.serviceTable)
-		if len(servicesList) == 0 {
-			s.showServiceMessage("No services found")
-			return
-		}
-		for i, svc := range servicesList {
-			row := i + 1
-			s.serviceTable.SetCell(row, 0, tview.NewTableCell(svc.Name).
-				SetExpansion(2).
-				SetSelectable(true)).
-				SetCell(row, 1, tview.NewTableCell(truncateString(svc.Image, 40)).
-					SetExpansion(4)).
-				SetCell(row, 2, tview.NewTableCell(defaultIfEmpty(svc.CPU, "-")).
-					SetExpansion(1)).
-				SetCell(row, 3, tview.NewTableCell(defaultIfEmpty(svc.Memory, "-")).
-					SetExpansion(1))
-		}
-		s.mutex.Lock()
-		defer s.mutex.Unlock()
-		if loadVersion == s.loadSeq {
-			if s.currentCluster == name {
-				s.currentServices = servicesList
-				delete(s.failedClusters, name)
-			}
-			s.refreshing = false
-			s.loadingCluster = ""
-			s.loadCancel = nil
-		}
-	})
 	cancel()
-	s.setStatus(fmt.Sprintf("[green]Loaded %d service(s) for %s", len(servicesList), name))
+	s.mutex.Lock()
+	if loadVersion != s.loadSeq {
+		s.mutex.Unlock()
+		return
+	}
+	if s.currentCluster == name {
+		s.currentServices = servicesList
+		delete(s.failedClusters, name)
+	}
+	s.refreshing = false
+	s.loadingCluster = ""
+	s.loadCancel = nil
+	currentMode := s.mode
+	s.mutex.Unlock()
+
+	if currentMode == modeServices && s.currentCluster == name {
+		s.renderServiceTable(servicesList)
+		s.setStatus(fmt.Sprintf("[green]Loaded %d service(s) for %s", len(servicesList), name))
+	}
+}
+
+func (s *uiState) loadBuckets(ctx context.Context, name string, force bool) {
+	if name == "" {
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[name]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", name))
+		s.queueUpdate(func() {
+			s.showBucketMessage("Cluster not found")
+		})
+		return
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading buckets for cluster %s…", name))
+	s.queueUpdate(func() {
+		s.showBucketMessage("Loading buckets…")
+	})
+
+	s.mutex.Lock()
+	if s.bucketCancel != nil {
+		s.bucketCancel()
+		s.bucketCancel = nil
+	}
+	s.bucketSeq++
+	seq := s.bucketSeq
+	ctxFetch, cancel := context.WithTimeout(ctx, 15*time.Second)
+	s.bucketCancel = cancel
+	s.mutex.Unlock()
+
+	buckets, err := storage.ListBucketsWithContext(ctxFetch, clusterCfg)
+	cancel()
+	if err != nil {
+		s.setStatus(fmt.Sprintf("[red]Unable to load buckets for %s: %v", name, err))
+		s.mutex.Lock()
+		if seq == s.bucketSeq {
+			s.bucketInfos = nil
+			s.bucketCancel = nil
+			s.bucketCluster = ""
+		}
+		s.mutex.Unlock()
+		s.queueUpdate(func() {
+			s.showBucketMessage("Unable to load buckets")
+		})
+		return
+	}
+
+	s.mutex.Lock()
+	if seq != s.bucketSeq {
+		s.mutex.Unlock()
+		return
+	}
+	s.bucketInfos = buckets
+	s.bucketCancel = nil
+	s.bucketCluster = name
+	mode := s.mode
+	currentCluster := s.currentCluster
+	s.mutex.Unlock()
+
+	if mode == modeBuckets && currentCluster == name {
+		s.renderBucketTable(buckets)
+		s.setStatus(fmt.Sprintf("[green]Loaded %d bucket(s) for %s", len(buckets), name))
+	}
 }
 
 func (s *uiState) setStatus(message string) {
@@ -389,17 +605,6 @@ func (s *uiState) setStatus(message string) {
 	s.queueUpdate(func() {
 		s.statusView.SetText(message)
 	})
-}
-
-func setServiceTableHeader(table *tview.Table) {
-	table.Clear()
-	headers := []string{"Name", "Image", "CPU", "Memory"}
-	for col, header := range headers {
-		table.SetCell(0, col, tview.NewTableCell(header).
-			SetTextColor(tcell.ColorWhite).
-			SetSelectable(false).
-			SetAttributes(tcell.AttrBold))
-	}
 }
 
 func sortedClusters(m map[string]*cluster.Cluster) []string {
@@ -426,6 +631,17 @@ func (s *uiState) triggerClusterSelection(index int) {
 	})
 }
 
+func (s *uiState) handleSelection(row int, immediate bool) {
+	s.mutex.Lock()
+	mode := s.mode
+	s.mutex.Unlock()
+	if mode == modeBuckets {
+		s.handleBucketSelection(row)
+		return
+	}
+	s.handleServiceSelection(row, immediate)
+}
+
 func (s *uiState) queueUpdate(fn func()) {
 	s.mutex.Lock()
 	started := s.started
@@ -446,6 +662,14 @@ func (s *uiState) queueUpdate(fn func()) {
 
 func (s *uiState) handleServiceSelection(row int, immediate bool) {
 	s.mutex.Lock()
+	if s.mode != modeServices {
+		if s.detailTimer != nil {
+			s.detailTimer.Stop()
+			s.detailTimer = nil
+		}
+		s.mutex.Unlock()
+		return
+	}
 	if row <= 0 || row-1 >= len(s.currentServices) {
 		if s.detailTimer != nil {
 			s.detailTimer.Stop()
@@ -496,6 +720,26 @@ func (s *uiState) handleServiceSelection(row int, immediate bool) {
 		timer.Stop()
 	}
 	s.mutex.Unlock()
+}
+
+func (s *uiState) handleBucketSelection(row int) {
+	s.mutex.Lock()
+	if s.mode != modeBuckets {
+		s.mutex.Unlock()
+		return
+	}
+	if row <= 0 || row-1 >= len(s.bucketInfos) {
+		s.mutex.Unlock()
+		s.queueUpdate(func() {
+			s.detailsView.SetText("Select a bucket to inspect details")
+		})
+		return
+	}
+	bucket := s.bucketInfos[row-1]
+	s.mutex.Unlock()
+	s.queueUpdate(func() {
+		s.detailsView.SetText(formatBucketDetails(bucket))
+	})
 }
 
 func (s *uiState) toggleLegend() {
@@ -559,8 +803,11 @@ func (s *uiState) hideLegendUnlocked() {
 
 func (s *uiState) requestDeletion() {
 	s.mutex.Lock()
-	if s.confirmVisible || s.legendVisible || s.pages == nil {
+	if s.mode != modeServices || s.confirmVisible || s.legendVisible || s.pages == nil {
 		s.mutex.Unlock()
+		if s.mode != modeServices {
+			s.setStatus("[red]Deletion only available in services view")
+		}
 		return
 	}
 	row, _ := s.serviceTable.GetSelection()
@@ -697,13 +944,139 @@ func formatServiceDetails(svc *types.Service) string {
 	return builder.String()
 }
 
+func formatBucketDetails(bucket *storage.BucketInfo) string {
+	if bucket == nil {
+		return ""
+	}
+	builder := &strings.Builder{}
+	fmt.Fprintf(builder, "[yellow]Name:[-] %s\n", bucket.Name)
+	if bucket.Visibility != "" {
+		fmt.Fprintf(builder, "[yellow]Visibility:[-] %s\n", bucket.Visibility)
+	}
+	if len(bucket.AllowedUsers) > 0 {
+		fmt.Fprintf(builder, "[yellow]Allowed Users:[-] %s\n", strings.Join(bucket.AllowedUsers, ", "))
+	}
+	if bucket.Owner != "" {
+		fmt.Fprintf(builder, "[yellow]Owner:[-] %s\n", bucket.Owner)
+	}
+
+	if !bucket.CreationDate.IsZero() {
+		fmt.Fprintf(builder, "[yellow]Created:[-] %s\n", bucket.CreationDate.Format("2006-01-02 15:04"))
+	}
+	return builder.String()
+}
+
 func (s *uiState) showServiceMessage(message string) {
+	s.serviceTable.SetTitle("Services")
 	setServiceTableHeader(s.serviceTable)
-	s.serviceTable.SetCell(1, 0, tview.NewTableCell(message).
+	fillMessageRow(s.serviceTable, len(serviceHeaders), message)
+}
+
+func (s *uiState) showBucketMessage(message string) {
+	s.serviceTable.SetTitle("Buckets")
+	setBucketTableHeader(s.serviceTable)
+	fillMessageRow(s.serviceTable, len(bucketHeaders), message)
+}
+
+func (s *uiState) renderServiceTable(services []*types.Service) {
+	s.queueUpdate(func() {
+		s.serviceTable.SetTitle("Services")
+		setServiceTableHeader(s.serviceTable)
+		if len(services) == 0 {
+			fillMessageRow(s.serviceTable, len(serviceHeaders), "No services found")
+			return
+		}
+		for i, svc := range services {
+			row := i + 1
+			s.serviceTable.SetCell(row, 0, tview.NewTableCell(svc.Name).
+				SetExpansion(2).
+				SetSelectable(true)).
+				SetCell(row, 1, tview.NewTableCell(truncateString(svc.Image, 40)).
+					SetExpansion(4)).
+				SetCell(row, 2, tview.NewTableCell(defaultIfEmpty(svc.CPU, "-")).
+					SetExpansion(1)).
+				SetCell(row, 3, tview.NewTableCell(defaultIfEmpty(svc.Memory, "-")).
+					SetExpansion(1))
+		}
+		row, col := s.serviceTable.GetSelection()
+		if row <= 0 || row > len(services) {
+			s.serviceTable.Select(1, 0)
+		} else {
+			s.serviceTable.Select(row, col)
+		}
+	})
+}
+
+func (s *uiState) renderBucketTable(buckets []*storage.BucketInfo) {
+	s.queueUpdate(func() {
+		s.serviceTable.SetTitle("Buckets")
+		setBucketTableHeader(s.serviceTable)
+		if len(buckets) == 0 {
+			fillMessageRow(s.serviceTable, len(bucketHeaders), "No buckets found")
+			s.detailsView.SetText("Select a bucket to inspect details")
+			return
+		}
+		for i, bucket := range buckets {
+			row := i + 1
+			color := bucketVisibilityColor(bucket.Visibility)
+			nameCell := tview.NewTableCell(bucket.Name).
+				SetSelectable(true).
+				SetExpansion(4)
+			visCell := tview.NewTableCell(defaultIfEmpty(bucket.Visibility, "-")).
+				SetExpansion(2).
+				SetTextColor(color)
+			ownerCell := tview.NewTableCell(defaultIfEmpty(bucket.Owner, "-")).
+				SetExpansion(5)
+			s.serviceTable.SetCell(row, 0, nameCell).
+				SetCell(row, 1, visCell).
+				SetCell(row, 2, ownerCell)
+		}
+		row, col := s.serviceTable.GetSelection()
+		if row <= 0 || row > len(buckets) {
+			s.serviceTable.Select(1, 0)
+		} else {
+			s.serviceTable.Select(row, col)
+		}
+	})
+}
+
+func setServiceTableHeader(table *tview.Table) {
+	setTableHeader(table, serviceHeaders)
+}
+
+func setBucketTableHeader(table *tview.Table) {
+	setTableHeader(table, bucketHeaders)
+}
+
+func setTableHeader(table *tview.Table, headers []string) {
+	table.Clear()
+	for col, header := range headers {
+		table.SetCell(0, col, tview.NewTableCell(header).
+			SetTextColor(tcell.ColorWhite).
+			SetSelectable(false).
+			SetAttributes(tcell.AttrBold))
+	}
+}
+
+func fillMessageRow(table *tview.Table, columns int, message string) {
+	table.SetCell(1, 0, tview.NewTableCell(message).
 		SetAlign(tview.AlignCenter).
 		SetSelectable(false).
-		SetExpansion(8))
-	s.serviceTable.SetCell(1, 1, tview.NewTableCell("").SetSelectable(false))
-	s.serviceTable.SetCell(1, 2, tview.NewTableCell("").SetSelectable(false))
-	s.serviceTable.SetCell(1, 3, tview.NewTableCell("").SetSelectable(false))
+		SetExpansion(columns))
+	for col := 1; col < columns; col++ {
+		table.SetCell(1, col, tview.NewTableCell("").SetSelectable(false))
+	}
+}
+
+func bucketVisibilityColor(vis string) tcell.Color {
+	switch strings.ToLower(strings.TrimSpace(vis)) {
+	case "restricted":
+		return tcell.ColorYellow
+	case "private":
+		return tcell.ColorRed
+	case "public":
+		return tcell.ColorGreen
+	default:
+		return tcell.ColorWhite
+	}
 }

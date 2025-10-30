@@ -17,14 +17,20 @@ limitations under the License.
 package storage
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -36,6 +42,123 @@ import (
 )
 
 var DefaultStorageProvider = []string{"minio.default", "minio"}
+
+// BucketInfo describes a storage bucket accessible from a cluster.
+type BucketInfo struct {
+	Name         string
+	Provider     string
+	Visibility   string
+	AllowedUsers []string
+	Owner        string
+	CreationDate time.Time
+}
+
+// ListBuckets returns the buckets available through the cluster MinIO provider.
+func ListBuckets(c *cluster.Cluster) ([]*BucketInfo, error) {
+	return ListBucketsWithContext(context.Background(), c)
+}
+
+// ListBucketsWithContext returns the buckets available through the cluster MinIO provider using the given context.
+func ListBucketsWithContext(ctx context.Context, c *cluster.Cluster) ([]*BucketInfo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if c == nil {
+		return nil, errors.New("cluster configuration not provided")
+	}
+
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return nil, cluster.ErrParsingEndpoint
+	}
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, cluster.ErrMakingRequest
+	}
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return nil, err
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	type bucketPayload struct {
+		Name         string   `json:"bucket_name"`
+		Visibility   string   `json:"visibility"`
+		AllowedUsers []string `json:"allowed_users"`
+		Owner        string   `json:"owner"`
+		Provider     string   `json:"provider"`
+		CreationDate string   `json:"creation_date"`
+	}
+
+	var (
+		raw      []bucketPayload
+		envelope struct {
+			Buckets []bucketPayload `json:"buckets"`
+		}
+	)
+
+	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Buckets != nil {
+		raw = envelope.Buckets
+	} else {
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return nil, err
+		}
+	}
+
+	buckets := make([]*BucketInfo, 0, len(raw))
+	for _, item := range raw {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		info := &BucketInfo{
+			Name:         name,
+			Provider:     defaultProviderLabel(item.Provider),
+			Visibility:   strings.TrimSpace(item.Visibility),
+			AllowedUsers: append([]string(nil), item.AllowedUsers...),
+			Owner:        strings.TrimSpace(item.Owner),
+		}
+		if ts := strings.TrimSpace(item.CreationDate); ts != "" {
+			if t, err := time.Parse(time.RFC3339, ts); err == nil {
+				info.CreationDate = t
+			} else if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+				info.CreationDate = t
+			}
+		}
+		buckets = append(buckets, info)
+	}
+
+	sort.Slice(buckets, func(i, j int) bool {
+		return strings.ToLower(buckets[i].Name) < strings.ToLower(buckets[j].Name)
+	})
+
+	return buckets, nil
+}
+
+func defaultProviderLabel(provider string) string {
+	trimmed := strings.TrimSpace(provider)
+	if trimmed == "" {
+		return "-"
+	}
+	return trimmed
+}
 
 func getProvider(c *cluster.Cluster, providerString string, providers *types.StorageProviders) (interface{}, error) {
 	if providerString == "minio" || providerString == "minio.default" {
