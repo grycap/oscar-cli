@@ -126,6 +126,11 @@ func Run(ctx context.Context, conf *config.Config) error {
 	state.serviceTable.SetSelectedFunc(func(row, column int) {
 		state.handleSelection(row, true)
 	})
+	state.serviceTable.SetFocusFunc(func() {
+		if state.modeIsServices() {
+			state.markServicePanelVisited()
+		}
+	})
 
 	layout := tview.NewFlex().
 		AddItem(state.clusterList, 0, 1, true).
@@ -162,24 +167,24 @@ func Run(ctx context.Context, conf *config.Config) error {
 		}
 
 		switch event.Key() {
-	case tcell.KeyTab:
-		if app.GetFocus() == state.clusterList {
-			if state.modeIsServices() {
-				state.markServicePanelVisited()
+		case tcell.KeyTab:
+			if app.GetFocus() == state.clusterList {
+				if state.modeIsServices() {
+					state.markServicePanelVisited()
+				}
+				app.SetFocus(state.serviceTable)
+			} else {
+				app.SetFocus(state.clusterList)
 			}
-			app.SetFocus(state.serviceTable)
-		} else {
-			app.SetFocus(state.clusterList)
-		}
-		return nil
-	case tcell.KeyRight:
-		if app.GetFocus() == state.clusterList {
-			if state.modeIsServices() {
-				state.markServicePanelVisited()
-			}
-			app.SetFocus(state.serviceTable)
 			return nil
-		}
+		case tcell.KeyRight:
+			if app.GetFocus() == state.clusterList {
+				if state.modeIsServices() {
+					state.markServicePanelVisited()
+				}
+				app.SetFocus(state.serviceTable)
+				return nil
+			}
 		case tcell.KeyLeft:
 			if app.GetFocus() == state.serviceTable {
 				app.SetFocus(state.clusterList)
@@ -523,8 +528,6 @@ func (s *uiState) switchToServices(ctx context.Context) {
 	services := s.currentServices
 	clusterName := s.currentCluster
 	s.mutex.Unlock()
-
- 	s.markServicePanelVisited()
 
 	s.showClusterDetails(clusterName)
 
