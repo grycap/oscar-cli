@@ -43,6 +43,17 @@ var (
 	bucketHeaders  = []string{"Name", "Visibility", "Owner"}
 )
 
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+
+type searchTarget int
+
+const (
+	searchTargetNone searchTarget = iota
+	searchTargetClusters
+	searchTargetServices
+	searchTargetBuckets
+)
+
 // Run launches the interactive terminal user interface.
 func Run(ctx context.Context, conf *config.Config) error {
 	if conf == nil {
@@ -66,8 +77,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 		mode:           modeServices,
 	}
 
-	state.statusView.SetBorder(true)
-	state.statusView.SetTitle("Status")
+	state.statusView.SetBorder(false)
 	state.detailsView.SetBorder(true)
 	state.detailsView.SetTitle("Details")
 	state.detailsView.SetText("Select a service to inspect details")
@@ -77,7 +87,13 @@ func Run(ctx context.Context, conf *config.Config) error {
 	state.clusterList.SetBorder(true)
 	state.clusterList.SetTitle("Clusters")
 
+	state.statusContainer = tview.NewFlex().SetDirection(tview.FlexColumn)
+	state.statusContainer.SetBorder(true)
+	state.statusContainer.SetTitle("Status")
+	state.statusContainer.AddItem(state.statusView, 0, 1, false)
+
 	clusterNames := sortedClusters(conf.Oscar)
+	state.clusterNames = clusterNames
 	defaultCluster := conf.Default
 	if defaultCluster == "" && len(clusterNames) > 0 {
 		defaultCluster = clusterNames[0]
@@ -115,9 +131,9 @@ func Run(ctx context.Context, conf *config.Config) error {
 		SetDirection(tview.FlexRow).
 		AddItem(layout, 0, 1, true).
 		AddItem(state.detailsView, 12, 1, false).
-		AddItem(state.statusView, 3, 1, false)
+		AddItem(state.statusContainer, 3, 1, false)
 
-	state.statusView.SetText("[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane")
+	state.statusView.SetText(statusHelpText)
 
 	pages := tview.NewPages()
 	pages.AddPage("main", root, true, true)
@@ -126,6 +142,14 @@ func Run(ctx context.Context, conf *config.Config) error {
 	app.SetRoot(pages, true)
 	app.SetFocus(state.clusterList)
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if state.searchVisible {
+			if event.Key() == tcell.KeyEsc {
+				state.hideSearch()
+				return nil
+			}
+			return event
+		}
+
 		switch event.Key() {
 		case tcell.KeyTab:
 			if app.GetFocus() == state.clusterList {
@@ -172,6 +196,9 @@ func Run(ctx context.Context, conf *config.Config) error {
 		case '?':
 			state.toggleLegend()
 			return nil
+		case '/':
+			state.initiateSearch(ctx)
+			return nil
 		}
 		return event
 	})
@@ -212,8 +239,11 @@ type uiState struct {
 	detailsView     *tview.TextView
 	serviceTable    *tview.Table
 	clusterList     *tview.List
+	statusContainer *tview.Flex
 	pages           *tview.Pages
 	mutex           *sync.Mutex
+
+	clusterNames    []string
 	currentCluster  string
 	currentServices []*types.Service
 	refreshing      bool
@@ -233,6 +263,10 @@ type uiState struct {
 	bucketCancel    context.CancelFunc
 	bucketSeq       int
 	bucketCluster   string
+	searchVisible   bool
+	searchInput     *tview.InputField
+	searchTarget    searchTarget
+	originalFocus   tview.Primitive
 }
 
 func (s *uiState) selectCluster(ctx context.Context, name string) {
@@ -320,6 +354,9 @@ func (s *uiState) refreshCurrent(ctx context.Context) {
 }
 
 func (s *uiState) switchToBuckets(ctx context.Context) {
+	if s.searchVisible {
+		s.hideSearch()
+	}
 	s.mutex.Lock()
 	if s.confirmVisible || s.legendVisible {
 		s.mutex.Unlock()
@@ -372,6 +409,9 @@ func (s *uiState) switchToBuckets(ctx context.Context) {
 }
 
 func (s *uiState) switchToServices(ctx context.Context) {
+	if s.searchVisible {
+		s.hideSearch()
+	}
 	s.mutex.Lock()
 	if s.confirmVisible || s.legendVisible {
 		s.mutex.Unlock()
@@ -904,6 +944,213 @@ func (s *uiState) performDeletion(clusterName, svcName string) {
 		s.detailsView.SetText("Select a service to inspect details")
 	})
 	s.refreshCurrent(context.Background())
+}
+
+func (s *uiState) initiateSearch(ctx context.Context) {
+	_ = ctx
+	s.mutex.Lock()
+	if s.searchVisible || s.confirmVisible || s.legendVisible || s.pages == nil {
+		s.mutex.Unlock()
+		return
+	}
+	focus := s.app.GetFocus()
+	mode := s.mode
+	s.mutex.Unlock()
+
+	target := searchTargetNone
+	switch focus {
+	case s.clusterList:
+		target = searchTargetClusters
+	case s.serviceTable:
+		if mode == modeBuckets {
+			target = searchTargetBuckets
+		} else {
+			target = searchTargetServices
+		}
+	}
+
+	if target == searchTargetNone {
+		return
+	}
+
+	s.mutex.Lock()
+	switch target {
+	case searchTargetClusters:
+		if len(s.clusterNames) == 0 {
+			s.mutex.Unlock()
+			s.setStatus("[yellow]No clusters to search")
+			return
+		}
+	case searchTargetServices:
+		if len(s.currentServices) == 0 {
+			s.mutex.Unlock()
+			s.setStatus("[yellow]No services to search")
+			return
+		}
+	case searchTargetBuckets:
+		if len(s.bucketInfos) == 0 {
+			s.mutex.Unlock()
+			s.setStatus("[yellow]No buckets to search")
+			return
+		}
+	}
+	s.mutex.Unlock()
+
+	s.showSearch(target)
+}
+
+func (s *uiState) showSearch(target searchTarget) {
+	s.mutex.Lock()
+	if s.searchVisible || s.pages == nil {
+		s.mutex.Unlock()
+		return
+	}
+	s.searchVisible = true
+	s.searchTarget = target
+	s.originalFocus = s.app.GetFocus()
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	label := "Search: "
+	switch target {
+	case searchTargetClusters:
+		label = "Clusters: "
+	case searchTargetServices:
+		label = "Services: "
+	case searchTargetBuckets:
+		label = "Buckets: "
+	}
+
+	input := tview.NewInputField().
+		SetLabel(label).
+		SetFieldWidth(30)
+	input.SetChangedFunc(func(text string) {
+		s.handleSearchInput(text)
+	})
+	input.SetDoneFunc(func(key tcell.Key) {
+		s.hideSearch()
+	})
+
+	s.mutex.Lock()
+	s.searchInput = input
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Search")
+		input.SetBorder(false)
+		container.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) hideSearch() {
+	s.mutex.Lock()
+	if !s.searchVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.searchVisible = false
+	s.searchTarget = searchTargetNone
+	input := s.searchInput
+	s.searchInput = nil
+	focus := s.originalFocus
+	s.originalFocus = nil
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Status")
+		container.AddItem(s.statusView, 0, 1, false)
+		s.statusView.SetText(statusHelpText)
+	})
+	if focus != nil {
+		s.app.SetFocus(focus)
+	}
+
+	if input != nil {
+		input.SetText("")
+	}
+}
+
+func (s *uiState) handleSearchInput(query string) {
+	s.mutex.Lock()
+	target := s.searchTarget
+	s.mutex.Unlock()
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return
+	}
+	lower := strings.ToLower(trimmed)
+	var found bool
+	switch target {
+	case searchTargetClusters:
+		found = s.searchClusters(lower)
+	case searchTargetServices:
+		found = s.searchServices(lower)
+	case searchTargetBuckets:
+		found = s.searchBuckets(lower)
+	}
+	if !found {
+		s.setStatus("[yellow]No matches found")
+	}
+}
+
+func (s *uiState) searchClusters(query string) bool {
+	s.mutex.Lock()
+	names := append([]string(nil), s.clusterNames...)
+	s.mutex.Unlock()
+	for idx, name := range names {
+		if strings.Contains(strings.ToLower(name), query) {
+			s.queueUpdate(func() {
+				s.clusterList.SetCurrentItem(idx)
+			})
+			return true
+		}
+	}
+	return false
+}
+
+func (s *uiState) searchServices(query string) bool {
+	s.mutex.Lock()
+	services := append([]*types.Service(nil), s.currentServices...)
+	s.mutex.Unlock()
+	for idx, svc := range services {
+		if svc == nil {
+			continue
+		}
+		if strings.Contains(strings.ToLower(svc.Name), query) {
+			row := idx + 1
+			s.queueUpdate(func() {
+				s.serviceTable.Select(row, 0)
+				s.handleServiceSelection(row, true)
+			})
+			return true
+		}
+	}
+	return false
+}
+
+func (s *uiState) searchBuckets(query string) bool {
+	s.mutex.Lock()
+	buckets := append([]*storage.BucketInfo(nil), s.bucketInfos...)
+	s.mutex.Unlock()
+	for idx, bucket := range buckets {
+		if bucket == nil {
+			continue
+		}
+		haystack := strings.ToLower(bucket.Name + " " + bucket.Owner)
+		if strings.Contains(haystack, query) {
+			row := idx + 1
+			s.queueUpdate(func() {
+				s.serviceTable.Select(row, 0)
+				s.handleBucketSelection(row)
+			})
+			return true
+		}
+	}
+	return false
 }
 
 func truncateString(val string, limit int) string {
