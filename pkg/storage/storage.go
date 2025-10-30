@@ -152,6 +152,45 @@ func ListBucketsWithContext(ctx context.Context, c *cluster.Cluster) ([]*BucketI
 	return buckets, nil
 }
 
+// DeleteBucket removes a bucket from the specified cluster.
+func DeleteBucket(c *cluster.Cluster, name string) error {
+	if c == nil {
+		return errors.New("cluster configuration not provided")
+	}
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return errors.New("bucket name is required")
+	}
+
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return cluster.ErrParsingEndpoint
+	}
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmed)
+
+	req, err := http.NewRequest(http.MethodDelete, endpoint.String(), nil)
+	if err != nil {
+		return cluster.ErrMakingRequest
+	}
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func defaultProviderLabel(provider string) string {
 	trimmed := strings.TrimSpace(provider)
 	if trimmed == "" {

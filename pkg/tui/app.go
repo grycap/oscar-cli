@@ -25,7 +25,7 @@ const legendText = `[yellow]Navigation[-]
 
 [yellow]Actions[-]
   r  Refresh current view
-  d  Delete selected service
+  d  Delete selected item
   b  Switch to buckets view
   s  Switch to services view
   q  Quit
@@ -43,7 +43,7 @@ var (
 	bucketHeaders  = []string{"Name", "Visibility", "Owner"}
 )
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type searchTarget int
 
@@ -843,39 +843,64 @@ func (s *uiState) hideLegendUnlocked() {
 
 func (s *uiState) requestDeletion() {
 	s.mutex.Lock()
-	if s.mode != modeServices || s.confirmVisible || s.legendVisible || s.pages == nil {
+	mode := s.mode
+	if s.confirmVisible || s.legendVisible || s.pages == nil {
 		s.mutex.Unlock()
-		if s.mode != modeServices {
-			s.setStatus("[red]Deletion only available in services view")
-		}
 		return
 	}
 	row, _ := s.serviceTable.GetSelection()
-	if row <= 0 || row-1 >= len(s.currentServices) {
-		s.mutex.Unlock()
-		s.setStatus("[red]Select a service to delete")
-		return
-	}
-	svcPtr := s.currentServices[row-1]
 	clusterName := s.currentCluster
-	if svcPtr == nil || clusterName == "" {
+	switch mode {
+	case modeServices:
+		if row <= 0 || row-1 >= len(s.currentServices) || clusterName == "" {
+			s.mutex.Unlock()
+			s.setStatus("[red]Select a service to delete")
+			return
+		}
+		svcPtr := s.currentServices[row-1]
+		if svcPtr == nil {
+			s.mutex.Unlock()
+			s.setStatus("[red]Select a service to delete")
+			return
+		}
+		if s.detailTimer != nil {
+			s.detailTimer.Stop()
+			s.detailTimer = nil
+		}
+		svcName := svcPtr.Name
 		s.mutex.Unlock()
-		s.setStatus("[red]Select a service to delete")
-		return
-	}
-	if s.detailTimer != nil {
-		s.detailTimer.Stop()
-		s.detailTimer = nil
-	}
-	svcName := svcPtr.Name
-	s.mutex.Unlock()
 
-	prompt := fmt.Sprintf("Delete service %q from cluster %q?", svcName, clusterName)
-	s.queueUpdate(func() {
-		s.showConfirmation(prompt, func() {
-			go s.performDeletion(clusterName, svcName)
+		prompt := fmt.Sprintf("Delete service %q from cluster %q?", svcName, clusterName)
+		s.queueUpdate(func() {
+			s.showConfirmation(prompt, func() {
+				go s.performDeletion(clusterName, svcName)
+			})
 		})
-	})
+	case modeBuckets:
+		if row <= 0 || row-1 >= len(s.bucketInfos) || clusterName == "" {
+			s.mutex.Unlock()
+			s.setStatus("[red]Select a bucket to delete")
+			return
+		}
+		bucket := s.bucketInfos[row-1]
+		if bucket == nil || strings.TrimSpace(bucket.Name) == "" {
+			s.mutex.Unlock()
+			s.setStatus("[red]Select a bucket to delete")
+			return
+		}
+		bucketName := bucket.Name
+		s.mutex.Unlock()
+
+		prompt := fmt.Sprintf("Delete bucket %q from cluster %q?", bucketName, clusterName)
+		s.queueUpdate(func() {
+			s.showConfirmation(prompt, func() {
+				go s.performBucketDeletion(clusterName, bucketName)
+			})
+		})
+	default:
+		s.mutex.Unlock()
+		s.setStatus("[red]Deletion not available in this view")
+	}
 }
 
 func (s *uiState) showConfirmation(text string, onConfirm func()) {
@@ -942,6 +967,27 @@ func (s *uiState) performDeletion(clusterName, svcName string) {
 	s.setStatus(fmt.Sprintf("[green]Service %q deleted", svcName))
 	s.queueUpdate(func() {
 		s.detailsView.SetText("Select a service to inspect details")
+	})
+	s.refreshCurrent(context.Background())
+}
+
+func (s *uiState) performBucketDeletion(clusterName, bucketName string) {
+	s.setStatus(fmt.Sprintf("[yellow]Deleting bucket %q...", bucketName))
+	s.mutex.Lock()
+	s.lastSelection = ""
+	s.mutex.Unlock()
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+	if err := storage.DeleteBucket(clusterCfg, bucketName); err != nil {
+		s.setStatus(fmt.Sprintf("[red]Failed to delete bucket %q: %v", bucketName, err))
+		return
+	}
+	s.setStatus(fmt.Sprintf("[green]Bucket %q deleted", bucketName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText("Select a bucket to inspect details")
 	})
 	s.refreshCurrent(context.Background())
 }
