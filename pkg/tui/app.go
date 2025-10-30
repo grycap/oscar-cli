@@ -926,6 +926,9 @@ func formatServiceDetails(svc *types.Service) string {
 	}
 	builder := &strings.Builder{}
 	fmt.Fprintf(builder, "[yellow]Name:[-] %s\n", svc.Name)
+	if svc.ClusterID != "" {
+		fmt.Fprintf(builder, "[yellow]Cluster:[-] %s\n", svc.ClusterID)
+	}
 	if svc.Image != "" {
 		fmt.Fprintf(builder, "[yellow]Image:[-] %s\n", svc.Image)
 	}
