@@ -47,6 +47,7 @@ The documentation is available on [OSCAR's web for CLI](https://docs.oscar.gryca
     - [get-file](#get-file)
     - [put-file](#put-file)
     - [list-files](#list-files)
+  - [interactive](#interactive)
   - [version](#version)
   - [help](#help)
 
@@ -472,6 +473,28 @@ Flags:
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
+
+### interactive
+
+Launch an interactive terminal interface to browse OSCAR clusters and services.
+
+```
+Usage:
+  oscar-cli interactive [flags]
+
+Aliases:
+  interactive, ui
+
+Flags:
+      --config string   set the location of the config file (YAML or JSON)
+  -h, --help            help for interactive
+```
+
+While the UI is running you can:
+
+- Press `q` to quit the application.
+- Press `r` to refresh services for the selected cluster.
+- Use the arrow keys or `Tab` to move between clusters and services. Selecting a service shows its details in the lower pane.
 
 ### version
 

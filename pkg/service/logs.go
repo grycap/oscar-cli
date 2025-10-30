@@ -56,7 +56,12 @@ func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse
 		return logMap, cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return logMap, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return logMap, cluster.ErrSendingRequest
 	}
@@ -114,7 +119,12 @@ func GetLogs(c *cluster.Cluster, svcName string, jobName string, timestamps bool
 		return logs, cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return logs, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return logs, cluster.ErrSendingRequest
 	}
@@ -204,7 +214,12 @@ func RemoveLog(c *cluster.Cluster, svcName, jobName string) error {
 		return cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}
@@ -236,7 +251,12 @@ func RemoveLogs(c *cluster.Cluster, svcName string, all bool) error {
 		return cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}

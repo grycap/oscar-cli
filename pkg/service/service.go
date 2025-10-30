@@ -18,6 +18,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -105,7 +106,12 @@ func GetService(c *cluster.Cluster, name string) (svc *types.Service, err error)
 		return svc, cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return svc, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return svc, cluster.ErrSendingRequest
 	}
@@ -126,18 +132,32 @@ func GetService(c *cluster.Cluster, name string) (svc *types.Service, err error)
 
 // ListServices gets a service from a cluster
 func ListServices(c *cluster.Cluster) (svcList []*types.Service, err error) {
+	return ListServicesWithContext(context.Background(), c)
+}
+
+// ListServicesWithContext gets a service from a cluster honouring context cancellation.
+func ListServicesWithContext(ctx context.Context, c *cluster.Cluster) (svcList []*types.Service, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	getServicesURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return svcList, cluster.ErrParsingEndpoint
 	}
 	getServicesURL.Path = path.Join(getServicesURL.Path, servicesPath)
 
-	req, err := http.NewRequest(http.MethodGet, getServicesURL.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getServicesURL.String(), nil)
 	if err != nil {
 		return svcList, cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return svcList, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return svcList, cluster.ErrSendingRequest
 	}
@@ -169,7 +189,12 @@ func RemoveService(c *cluster.Cluster, name string) error {
 		return cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}
@@ -207,10 +232,16 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 		return cluster.ErrMakingRequest
 	}
 
-	client := c.GetClient()
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
 	// Increase timeout to avoid errors due to daemonset execution
 	if svc.ImagePrefetch {
-		client = c.GetClient(400)
+		client, err = c.GetClientSafe(400)
+		if err != nil {
+			return err
+		}
 	}
 	res, err := client.Do(req)
 	if err != nil {
@@ -265,7 +296,10 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 			req.Header.Add("Authorization", bearer)
 		}
 		// Update cluster client timeout
-		client := c.GetClient()
+		client, err := c.GetClientSafe()
+		if err != nil {
+			return nil, err
+		}
 		client.Timeout = time.Second * 300
 
 		// Update client transport to remove basic auth
@@ -328,7 +362,10 @@ func JobService(c *cluster.Cluster, name string, token string, endpoint string, 
 			req.Header.Add("Authorization", bearer)
 		}
 		// Update cluster client timeout
-		client := c.GetClient()
+		client, err := c.GetClientSafe()
+		if err != nil {
+			return nil, err
+		}
 		client.Timeout = time.Second * 300
 
 		// Update client transport to remove basic auth

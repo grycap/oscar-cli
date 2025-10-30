@@ -65,4 +65,5 @@ func init() {
 	rootCmd.AddCommand(makeHubCmd())
 	rootCmd.AddCommand(makeApplyCmd())
 	rootCmd.AddCommand(makeDeleteCmd())
+	rootCmd.AddCommand(makeInteractiveCmd())
 }
