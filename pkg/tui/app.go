@@ -18,6 +18,16 @@ import (
 	"github.com/grycap/oscar/v3/pkg/types"
 )
 
+const legendText = `[yellow]Navigation[-]
+  ↑/↓  Move selection
+  ←/→ or Tab  Switch pane
+
+[yellow]Actions[-]
+  r  Refresh services
+  d  Delete selected service
+  q  Quit
+  ?  Toggle this help`
+
 // Run launches the interactive terminal user interface.
 func Run(ctx context.Context, conf *config.Config) error {
 	if conf == nil {
@@ -91,9 +101,13 @@ func Run(ctx context.Context, conf *config.Config) error {
 		AddItem(state.detailsView, 12, 1, false).
 		AddItem(state.statusView, 3, 1, false)
 
-	state.statusView.SetText("[yellow]Press [::b]q[::-] to quit · [::b]r[::-] to refresh services · [::b]Enter[::-] to focus")
+	state.statusView.SetText("[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete · [::b]?[::-] Help · [::b]←/→[::-] Switch pane")
 
-	app.SetRoot(root, true)
+	pages := tview.NewPages()
+	pages.AddPage("main", root, true, true)
+	state.pages = pages
+
+	app.SetRoot(pages, true)
 	app.SetFocus(state.clusterList)
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
@@ -127,6 +141,14 @@ func Run(ctx context.Context, conf *config.Config) error {
 			return nil
 		case 'r', 'R':
 			state.refreshCurrent(ctx)
+			return nil
+		case 'd', 'D':
+			if app.GetFocus() == state.serviceTable {
+				state.requestDeletion()
+				return nil
+			}
+		case '?':
+			state.toggleLegend()
 			return nil
 		}
 		return event
@@ -168,6 +190,7 @@ type uiState struct {
 	detailsView     *tview.TextView
 	serviceTable    *tview.Table
 	clusterList     *tview.List
+	pages           *tview.Pages
 	mutex           *sync.Mutex
 	currentCluster  string
 	currentServices []*types.Service
@@ -180,6 +203,9 @@ type uiState struct {
 	loadSeq         int
 	detailTimer     *time.Timer
 	lastSelection   string
+	legendVisible   bool
+	confirmVisible  bool
+	savedFocus      tview.Primitive
 }
 
 func (s *uiState) selectCluster(ctx context.Context, name string) {
@@ -421,6 +447,11 @@ func (s *uiState) queueUpdate(fn func()) {
 func (s *uiState) handleServiceSelection(row int, immediate bool) {
 	s.mutex.Lock()
 	if row <= 0 || row-1 >= len(s.currentServices) {
+		if s.detailTimer != nil {
+			s.detailTimer.Stop()
+			s.detailTimer = nil
+		}
+		s.lastSelection = ""
 		s.mutex.Unlock()
 		return
 	}
@@ -459,12 +490,173 @@ func (s *uiState) handleServiceSelection(row int, immediate bool) {
 	})
 
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
 	if s.lastSelection == token {
 		s.detailTimer = timer
 	} else {
 		timer.Stop()
 	}
+	s.mutex.Unlock()
+}
+
+func (s *uiState) toggleLegend() {
+	s.mutex.Lock()
+	visible := s.legendVisible
+	confirm := s.confirmVisible
+	s.mutex.Unlock()
+	if visible {
+		s.queueUpdate(func() {
+			s.hideLegendUnlocked()
+		})
+		return
+	}
+	if confirm || s.pages == nil {
+		return
+	}
+	s.queueUpdate(func() {
+		s.showLegendUnlocked()
+	})
+}
+
+func (s *uiState) showLegendUnlocked() {
+	if s.pages == nil {
+		return
+	}
+	s.mutex.Lock()
+	if s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.legendVisible = true
+	s.savedFocus = s.app.GetFocus()
+	s.mutex.Unlock()
+	modal := tview.NewModal().
+		SetText(legendText).
+		AddButtons([]string{"Close"})
+	modal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		s.hideLegendUnlocked()
+	})
+	s.pages.AddAndSwitchToPage("legend", modal, true)
+}
+
+func (s *uiState) hideLegendUnlocked() {
+	if s.pages == nil {
+		return
+	}
+	s.mutex.Lock()
+	if !s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.legendVisible = false
+	focus := s.savedFocus
+	s.savedFocus = nil
+	s.mutex.Unlock()
+	s.pages.RemovePage("legend")
+	if focus != nil {
+		s.app.SetFocus(focus)
+	}
+}
+
+func (s *uiState) requestDeletion() {
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible || s.pages == nil {
+		s.mutex.Unlock()
+		return
+	}
+	row, _ := s.serviceTable.GetSelection()
+	if row <= 0 || row-1 >= len(s.currentServices) {
+		s.mutex.Unlock()
+		s.setStatus("[red]Select a service to delete")
+		return
+	}
+	svcPtr := s.currentServices[row-1]
+	clusterName := s.currentCluster
+	if svcPtr == nil || clusterName == "" {
+		s.mutex.Unlock()
+		s.setStatus("[red]Select a service to delete")
+		return
+	}
+	if s.detailTimer != nil {
+		s.detailTimer.Stop()
+		s.detailTimer = nil
+	}
+	svcName := svcPtr.Name
+	s.mutex.Unlock()
+
+	prompt := fmt.Sprintf("Delete service %q from cluster %q?", svcName, clusterName)
+	s.queueUpdate(func() {
+		s.showConfirmation(prompt, func() {
+			go s.performDeletion(clusterName, svcName)
+		})
+	})
+}
+
+func (s *uiState) showConfirmation(text string, onConfirm func()) {
+	if s.pages == nil {
+		return
+	}
+	s.mutex.Lock()
+	if s.confirmVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.confirmVisible = true
+	s.savedFocus = s.app.GetFocus()
+	s.mutex.Unlock()
+	modal := tview.NewModal().
+		SetText(text).
+		AddButtons([]string{"Cancel", "Delete"})
+	modal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		if buttonLabel == "Delete" {
+			onConfirm()
+		}
+		s.hideConfirmationUnlocked()
+	})
+	s.pages.AddAndSwitchToPage("confirm", modal, true)
+}
+
+func (s *uiState) hideConfirmationUnlocked() {
+	if s.pages == nil {
+		return
+	}
+	s.mutex.Lock()
+	if !s.confirmVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.confirmVisible = false
+	focus := s.savedFocus
+	s.savedFocus = nil
+	s.mutex.Unlock()
+	s.pages.RemovePage("confirm")
+	if focus != nil {
+		s.app.SetFocus(focus)
+	}
+}
+
+func (s *uiState) performDeletion(clusterName, svcName string) {
+	s.setStatus(fmt.Sprintf("[yellow]Deleting service %q...", svcName))
+	s.mutex.Lock()
+	if s.detailTimer != nil {
+		s.detailTimer.Stop()
+		s.detailTimer = nil
+	}
+	s.lastSelection = ""
+	s.mutex.Unlock()
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+	if err := service.RemoveService(clusterCfg, svcName); err != nil {
+		s.setStatus(fmt.Sprintf("[red]Failed to delete service %q: %v", svcName, err))
+		return
+	}
+	s.setStatus(fmt.Sprintf("[green]Service %q deleted", svcName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText("Select a service to inspect details")
+	})
+	s.refreshCurrent(context.Background())
 }
 
 func truncateString(val string, limit int) string {
