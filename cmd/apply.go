@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -35,6 +36,7 @@ var (
 	failureString        = color.New(color.FgRed).Sprint("✗ ")
 	successString        = color.New(color.FgGreen).Sprint("✓ ")
 	destinationClusterID string
+	serviceNameOverride  string
 )
 
 func applyFunc(cmd *cobra.Command, args []string) error {
@@ -108,6 +110,10 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 
 			svc.ClusterID = targetCluster
 
+			if trimmed := strings.TrimSpace(serviceNameOverride); trimmed != "" {
+				overrideServiceName(svc, trimmed)
+			}
+
 			msg := fmt.Sprintf(" Creating service \"%s\" in cluster \"%s\"", svc.Name, targetCluster)
 			method := http.MethodPost
 
@@ -175,6 +181,80 @@ func makeApplyCmd() *cobra.Command {
 	applyCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
 	applyCmd.Flags().StringVarP(&destinationClusterID, "cluster", "c", "", "override the cluster id defined in the FDL file")
 	applyCmd.Flags().Bool("default", false, "override the cluster id defined in config file")
+	applyCmd.Flags().StringVarP(&serviceNameOverride, "name", "n", "", "override the OSCAR service and primary bucket names during deployment")
 
 	return applyCmd
+}
+
+func overrideServiceName(svc *types.Service, newName string) {
+	if svc == nil {
+		return
+	}
+	override := strings.TrimSpace(newName)
+	if override == "" {
+		return
+	}
+	original := strings.TrimSpace(svc.Name)
+	if original == "" {
+		svc.Name = override
+		return
+	}
+	if original == override {
+		return
+	}
+
+	renameStoragePaths(&svc.Input, original, override)
+	renameStoragePaths(&svc.Output, original, override)
+	if svc.Mount.Path != "" {
+		svc.Mount.Path = replacePathBucket(svc.Mount.Path, original, override)
+	}
+
+	svc.Name = override
+}
+
+func renameStoragePaths(configs *[]types.StorageIOConfig, oldName, newName string) {
+	if configs == nil {
+		return
+	}
+	items := *configs
+	changed := false
+	for i := range items {
+		updated := replacePathBucket(items[i].Path, oldName, newName)
+		if updated != items[i].Path {
+			items[i].Path = updated
+			changed = true
+		}
+	}
+	if changed {
+		*configs = items
+	}
+}
+
+func replacePathBucket(path, oldName, newName string) string {
+	if strings.TrimSpace(path) == "" {
+		return path
+	}
+	trimmed := strings.Trim(path, " ")
+	leadingSlash := strings.HasPrefix(trimmed, "/")
+	trailingSlash := strings.HasSuffix(trimmed, "/")
+	trimmed = strings.Trim(trimmed, "/")
+	if trimmed == "" {
+		return path
+	}
+	parts := strings.SplitN(trimmed, "/", 2)
+	if !strings.EqualFold(parts[0], oldName) {
+		return path
+	}
+	replacement := newName
+	if len(parts) == 2 && parts[1] != "" {
+		replacement = fmt.Sprintf("%s/%s", newName, parts[1])
+	}
+	builder := replacement
+	if leadingSlash {
+		builder = "/" + builder
+	}
+	if trailingSlash && !strings.HasSuffix(builder, "/") {
+		builder += "/"
+	}
+	return builder
 }
