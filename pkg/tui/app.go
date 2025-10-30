@@ -27,6 +27,7 @@ const legendText = `[yellow]Navigation[-]
   r  Refresh current view
   d  Delete selected item
   i  Show cluster info
+  l  Show service logs
   b  Switch to buckets view
   s  Switch to services view
   q  Quit
@@ -44,7 +45,7 @@ var (
 	bucketHeaders  = []string{"Name", "Visibility", "Owner"}
 )
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type searchTarget int
 
@@ -130,9 +131,9 @@ func Run(ctx context.Context, conf *config.Config) error {
 
 	root := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(layout, 0, 1, true).
-		AddItem(state.detailsView, 12, 1, false).
-		AddItem(state.statusContainer, 3, 1, false)
+		AddItem(layout, 0, 4, true).
+		AddItem(state.detailsView, 0, 3, false).
+		AddItem(state.statusContainer, 4, 0, false)
 
 	state.statusView.SetText(statusHelpText)
 
@@ -192,6 +193,11 @@ func Run(ctx context.Context, conf *config.Config) error {
 		case 'd', 'D':
 			if app.GetFocus() == state.serviceTable {
 				state.requestDeletion()
+				return nil
+			}
+		case 'l', 'L':
+			if app.GetFocus() == state.serviceTable {
+				state.showServiceLogs()
 				return nil
 			}
 		case '?':
@@ -952,6 +958,82 @@ func (s *uiState) showClusterInfo() {
 	}(displayName, clusterCfg)
 }
 
+func (s *uiState) showServiceLogs() {
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	if s.mode != modeServices {
+		s.mutex.Unlock()
+		s.setStatus("[red]Logs are only available in services view")
+		return
+	}
+	row, _ := s.serviceTable.GetSelection()
+	if row <= 0 || row-1 >= len(s.currentServices) {
+		s.mutex.Unlock()
+		s.setStatus("[red]Select a service to view logs")
+		return
+	}
+	svcPtr := s.currentServices[row-1]
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	if svcPtr == nil {
+		s.setStatus("[red]Select a service to view logs")
+		return
+	}
+	serviceName := strings.TrimSpace(svcPtr.Name)
+	if serviceName == "" {
+		s.setStatus("[red]Select a service to view logs")
+		return
+	}
+
+	clusterName = strings.TrimSpace(clusterName)
+	if clusterName == "" {
+		s.setStatus("[red]Select a cluster to view logs")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading logs for %q…", serviceName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("Loading logs for %s…", serviceName))
+	})
+
+	go func(cName, svcName string, cfg *cluster.Cluster) {
+		jobName, err := service.FindLatestJobName(cfg, svcName)
+		if err != nil {
+			if errors.Is(err, service.ErrNoLogsFound) {
+				s.setStatus(fmt.Sprintf("[yellow]No logs found for %q", svcName))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(formatServiceLogs(svcName, "", ""))
+				})
+				return
+			}
+			s.setStatus(fmt.Sprintf("[red]Failed to locate logs for %q: %v", svcName, err))
+			return
+		}
+
+		logText, err := service.GetLogs(cfg, svcName, jobName, false)
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to download logs for %q: %v", svcName, err))
+			return
+		}
+
+		s.setStatus(fmt.Sprintf("[green]Loaded logs for %q", svcName))
+		rendered := formatServiceLogs(svcName, jobName, logText)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(rendered)
+		})
+	}(clusterName, serviceName, clusterCfg)
+}
+
 func (s *uiState) showConfirmation(text string, onConfirm func()) {
 	if s.pages == nil {
 		return
@@ -1295,6 +1377,24 @@ func formatClusterInfo(clusterName string, info types.Info) string {
 		return "No cluster information available"
 	}
 	return out
+}
+
+func formatServiceLogs(serviceName, jobName, logs string) string {
+	builder := &strings.Builder{}
+	if serviceName != "" {
+		fmt.Fprintf(builder, "[yellow]Service:[-] %s\n", serviceName)
+	}
+	if jobName != "" {
+		fmt.Fprintf(builder, "[yellow]Job:[-] %s\n", jobName)
+	}
+	clean := strings.TrimSpace(logs)
+	if clean == "" {
+		builder.WriteString("No logs available")
+		return builder.String()
+	}
+	builder.WriteString("\n")
+	builder.WriteString(tview.Escape(clean))
+	return builder.String()
 }
 
 func formatServiceDetails(svc *types.Service) string {
