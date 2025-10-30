@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,7 @@ const legendText = `[yellow]Navigation[-]
   d  Delete selected item
   i  Show cluster info
   l  Show service logs
+  w  Configure auto refresh
   b  Switch to buckets view
   s  Switch to services view
   q  Quit
@@ -45,7 +47,7 @@ var (
 	bucketHeaders  = []string{"Name", "Visibility", "Owner"}
 )
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type searchTarget int
 
@@ -69,6 +71,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 	state := &uiState{
 		app:            app,
 		conf:           conf,
+		rootCtx:        ctx,
 		statusView:     tview.NewTextView().SetDynamicColors(true),
 		detailsView:    tview.NewTextView().SetDynamicColors(true),
 		serviceTable:   tview.NewTable().SetSelectable(true, false),
@@ -151,6 +154,13 @@ func Run(ctx context.Context, conf *config.Config) error {
 			}
 			return event
 		}
+		if state.autoRefreshPromptVisible {
+			if event.Key() == tcell.KeyEsc {
+				state.hideAutoRefreshPrompt()
+				return nil
+			}
+			return event
+		}
 
 		switch event.Key() {
 		case tcell.KeyTab:
@@ -181,8 +191,11 @@ func Run(ctx context.Context, conf *config.Config) error {
 		case 'q', 'Q':
 			app.Stop()
 			return nil
-		case 'r', 'R':
+		case 'r':
 			state.refreshCurrent(ctx)
+			return nil
+		case 'w', 'W':
+			state.promptAutoRefresh()
 			return nil
 		case 'b', 'B':
 			state.switchToBuckets(ctx)
@@ -215,6 +228,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 
 	go func() {
 		<-ctx.Done()
+		state.stopAutoRefresh()
 		app.Stop()
 	}()
 
@@ -237,14 +251,17 @@ func Run(ctx context.Context, conf *config.Config) error {
 	})
 
 	if err := app.Run(); err != nil {
+		state.stopAutoRefresh()
 		return err
 	}
+	state.stopAutoRefresh()
 	return nil
 }
 
 type uiState struct {
 	app             *tview.Application
 	conf            *config.Config
+	rootCtx         context.Context
 	statusView      *tview.TextView
 	detailsView     *tview.TextView
 	serviceTable    *tview.Table
@@ -253,30 +270,37 @@ type uiState struct {
 	pages           *tview.Pages
 	mutex           *sync.Mutex
 
-	clusterNames    []string
-	currentCluster  string
-	currentServices []*types.Service
-	refreshing      bool
-	started         bool
-	pendingCluster  string
-	loadingCluster  string
-	failedClusters  map[string]string
-	loadCancel      context.CancelFunc
-	loadSeq         int
-	detailTimer     *time.Timer
-	lastSelection   string
-	legendVisible   bool
-	confirmVisible  bool
-	savedFocus      tview.Primitive
-	mode            panelMode
-	bucketInfos     []*storage.BucketInfo
-	bucketCancel    context.CancelFunc
-	bucketSeq       int
-	bucketCluster   string
-	searchVisible   bool
-	searchInput     *tview.InputField
-	searchTarget    searchTarget
-	originalFocus   tview.Primitive
+	clusterNames             []string
+	currentCluster           string
+	currentServices          []*types.Service
+	refreshing               bool
+	started                  bool
+	pendingCluster           string
+	loadingCluster           string
+	failedClusters           map[string]string
+	loadCancel               context.CancelFunc
+	loadSeq                  int
+	detailTimer              *time.Timer
+	lastSelection            string
+	legendVisible            bool
+	confirmVisible           bool
+	savedFocus               tview.Primitive
+	mode                     panelMode
+	bucketInfos              []*storage.BucketInfo
+	bucketCancel             context.CancelFunc
+	bucketSeq                int
+	bucketCluster            string
+	searchVisible            bool
+	searchInput              *tview.InputField
+	searchTarget             searchTarget
+	originalFocus            tview.Primitive
+	autoRefreshCancel        context.CancelFunc
+	autoRefreshTicker        *time.Ticker
+	autoRefreshPeriod        time.Duration
+	autoRefreshActive        bool
+	autoRefreshPromptVisible bool
+	autoRefreshInput         *tview.InputField
+	autoRefreshFocus         tview.Primitive
 }
 
 func (s *uiState) selectCluster(ctx context.Context, name string) {
@@ -956,6 +980,168 @@ func (s *uiState) showClusterInfo() {
 			s.detailsView.SetText(text)
 		})
 	}(displayName, clusterCfg)
+}
+
+func (s *uiState) promptAutoRefresh() {
+	s.mutex.Lock()
+	if s.autoRefreshPromptVisible || s.searchVisible || s.confirmVisible || s.legendVisible || s.pages == nil {
+		s.mutex.Unlock()
+		return
+	}
+	s.autoRefreshPromptVisible = true
+	s.autoRefreshFocus = s.app.GetFocus()
+	prevPeriod := s.autoRefreshPeriod
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	input := tview.NewInputField().
+		SetLabel("Auto refresh seconds (0 to stop, default 10): ").
+		SetFieldWidth(10)
+	input.SetAcceptanceFunc(func(text string, last rune) bool {
+		if last == 0 {
+			return true
+		}
+		return last >= '0' && last <= '9'
+	})
+	if prevPeriod > 0 {
+		input.SetText(fmt.Sprintf("%d", int(prevPeriod/time.Second)))
+	}
+	input.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyEnter:
+			s.handleAutoRefreshInput(input.GetText())
+		case tcell.KeyEscape:
+			s.hideAutoRefreshPrompt()
+		}
+	})
+
+	s.mutex.Lock()
+	s.autoRefreshInput = input
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Auto Refresh")
+		input.SetBorder(false)
+		container.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) hideAutoRefreshPrompt() {
+	s.mutex.Lock()
+	if !s.autoRefreshPromptVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.autoRefreshPromptVisible = false
+	input := s.autoRefreshInput
+	s.autoRefreshInput = nil
+	focus := s.autoRefreshFocus
+	s.autoRefreshFocus = nil
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Status")
+		container.AddItem(s.statusView, 0, 1, false)
+		s.statusView.SetText(statusHelpText)
+	})
+	if focus != nil {
+		s.app.SetFocus(focus)
+	}
+	if input != nil {
+		input.SetText("")
+	}
+}
+
+func (s *uiState) handleAutoRefreshInput(value string) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		s.hideAutoRefreshPrompt()
+		s.startAutoRefresh(10 * time.Second)
+		s.setStatus("[green]Auto refresh every 10 second(s)")
+		return
+	}
+	seconds, err := strconv.Atoi(trimmed)
+	if err != nil {
+		s.setStatus("[red]Enter a valid number of seconds")
+		return
+	}
+	if seconds < 0 {
+		s.setStatus("[red]Refresh period must not be negative")
+		return
+	}
+
+	s.hideAutoRefreshPrompt()
+	if seconds == 0 {
+		if s.stopAutoRefresh() {
+			s.setStatus("[yellow]Auto refresh disabled")
+		} else {
+			s.setStatus("[yellow]Auto refresh already disabled")
+		}
+		return
+	}
+
+	period := time.Duration(seconds) * time.Second
+	s.startAutoRefresh(period)
+	s.setStatus(fmt.Sprintf("[green]Auto refresh every %d second(s)", seconds))
+}
+
+func (s *uiState) startAutoRefresh(period time.Duration) {
+	if period <= 0 {
+		s.stopAutoRefresh()
+		return
+	}
+	// Ensure previous ticker is stopped.
+	s.stopAutoRefresh()
+
+	parent := context.Background()
+	s.mutex.Lock()
+	if s.rootCtx != nil {
+		parent = s.rootCtx
+	}
+	s.mutex.Unlock()
+
+	ctx, cancel := context.WithCancel(parent)
+	ticker := time.NewTicker(period)
+
+	s.mutex.Lock()
+	s.autoRefreshCancel = cancel
+	s.autoRefreshTicker = ticker
+	s.autoRefreshPeriod = period
+	s.autoRefreshActive = true
+	s.mutex.Unlock()
+
+	go func() {
+		s.refreshCurrent(context.Background())
+		for {
+			select {
+			case <-ticker.C:
+				s.refreshCurrent(context.Background())
+			case <-ctx.Done():
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+}
+
+func (s *uiState) stopAutoRefresh() bool {
+	s.mutex.Lock()
+	cancel := s.autoRefreshCancel
+	active := s.autoRefreshActive
+	s.autoRefreshCancel = nil
+	s.autoRefreshTicker = nil
+	s.autoRefreshPeriod = 0
+	s.autoRefreshActive = false
+	s.mutex.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	return active
 }
 
 func (s *uiState) showServiceLogs() {
