@@ -84,7 +84,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 	state.statusView.SetBorder(false)
 	state.detailsView.SetBorder(true)
 	state.detailsView.SetTitle("Details")
-	state.detailsView.SetText("Select a service to inspect details")
+	state.detailsView.SetText("Select a cluster to view details")
 	state.serviceTable.SetBorder(true)
 	state.serviceTable.SetTitle("Services")
 	state.serviceTable.SetFixed(1, 0)
@@ -162,18 +162,24 @@ func Run(ctx context.Context, conf *config.Config) error {
 		}
 
 		switch event.Key() {
-		case tcell.KeyTab:
-			if app.GetFocus() == state.clusterList {
-				app.SetFocus(state.serviceTable)
-			} else {
-				app.SetFocus(state.clusterList)
+	case tcell.KeyTab:
+		if app.GetFocus() == state.clusterList {
+			if state.modeIsServices() {
+				state.markServicePanelVisited()
 			}
+			app.SetFocus(state.serviceTable)
+		} else {
+			app.SetFocus(state.clusterList)
+		}
+		return nil
+	case tcell.KeyRight:
+		if app.GetFocus() == state.clusterList {
+			if state.modeIsServices() {
+				state.markServicePanelVisited()
+			}
+			app.SetFocus(state.serviceTable)
 			return nil
-		case tcell.KeyRight:
-			if app.GetFocus() == state.clusterList {
-				app.SetFocus(state.serviceTable)
-				return nil
-			}
+		}
 		case tcell.KeyLeft:
 			if app.GetFocus() == state.serviceTable {
 				app.SetFocus(state.clusterList)
@@ -300,6 +306,7 @@ type uiState struct {
 	autoRefreshPromptVisible bool
 	autoRefreshInput         *tview.InputField
 	autoRefreshFocus         tview.Primitive
+	servicePanelVisited      bool
 }
 
 func (s *uiState) selectCluster(ctx context.Context, name string) {
@@ -396,6 +403,45 @@ func (s *uiState) showClusterDetails(name string) {
 	})
 }
 
+func (s *uiState) markServicePanelVisited() {
+	s.mutex.Lock()
+	already := s.servicePanelVisited
+	s.servicePanelVisited = true
+	row, _ := s.serviceTable.GetSelection()
+	s.mutex.Unlock()
+	if already {
+		return
+	}
+	if row > 0 {
+		s.handleSelection(row, true)
+		return
+	}
+	s.setServiceDetailsText("Select a service to inspect details")
+}
+
+func (s *uiState) serviceDetailsEnabled() bool {
+	s.mutex.Lock()
+	visited := s.servicePanelVisited
+	s.mutex.Unlock()
+	return visited
+}
+
+func (s *uiState) modeIsServices() bool {
+	s.mutex.Lock()
+	mode := s.mode
+	s.mutex.Unlock()
+	return mode == modeServices
+}
+
+func (s *uiState) setServiceDetailsText(text string) {
+	if !s.serviceDetailsEnabled() {
+		return
+	}
+	s.queueUpdate(func() {
+		s.detailsView.SetText(text)
+	})
+}
+
 func (s *uiState) switchToBuckets(ctx context.Context) {
 	if s.searchVisible {
 		s.hideSearch()
@@ -477,6 +523,8 @@ func (s *uiState) switchToServices(ctx context.Context) {
 	services := s.currentServices
 	clusterName := s.currentCluster
 	s.mutex.Unlock()
+
+ 	s.markServicePanelVisited()
 
 	s.showClusterDetails(clusterName)
 
@@ -743,6 +791,7 @@ func (s *uiState) handleServiceSelection(row int, immediate bool) {
 		s.mutex.Unlock()
 		return
 	}
+	enabled := s.servicePanelVisited
 	if row <= 0 || row-1 >= len(s.currentServices) {
 		if s.detailTimer != nil {
 			s.detailTimer.Stop()
@@ -750,6 +799,9 @@ func (s *uiState) handleServiceSelection(row int, immediate bool) {
 		}
 		s.lastSelection = ""
 		s.mutex.Unlock()
+		if enabled {
+			s.setServiceDetailsText("Select a service to inspect details")
+		}
 		return
 	}
 	svcPtr := s.currentServices[row-1]
@@ -765,6 +817,10 @@ func (s *uiState) handleServiceSelection(row int, immediate bool) {
 	}
 	s.lastSelection = token
 	s.mutex.Unlock()
+
+	if !enabled {
+		return
+	}
 
 	if immediate {
 		s.queueUpdate(func() {
@@ -1302,9 +1358,7 @@ func (s *uiState) performDeletion(clusterName, svcName string) {
 		return
 	}
 	s.setStatus(fmt.Sprintf("[green]Service %q deleted", svcName))
-	s.queueUpdate(func() {
-		s.detailsView.SetText("Select a service to inspect details")
-	})
+	s.setServiceDetailsText("Select a service to inspect details")
 	s.refreshCurrent(context.Background())
 }
 
