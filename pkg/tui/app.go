@@ -26,6 +26,7 @@ const legendText = `[yellow]Navigation[-]
 [yellow]Actions[-]
   r  Refresh current view
   d  Delete selected item
+  i  Show cluster info
   b  Switch to buckets view
   s  Switch to services view
   q  Quit
@@ -43,7 +44,7 @@ var (
 	bucketHeaders  = []string{"Name", "Visibility", "Owner"}
 )
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type searchTarget int
 
@@ -195,6 +196,9 @@ func Run(ctx context.Context, conf *config.Config) error {
 			}
 		case '?':
 			state.toggleLegend()
+			return nil
+		case 'i', 'I':
+			state.showClusterInfo()
 			return nil
 		case '/':
 			state.initiateSearch(ctx)
@@ -903,6 +907,51 @@ func (s *uiState) requestDeletion() {
 	}
 }
 
+func (s *uiState) showClusterInfo() {
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	trimmedName := strings.TrimSpace(clusterName)
+	if trimmedName == "" {
+		s.setStatus("[red]Select a cluster to view its info")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil && trimmedName != clusterName {
+		clusterCfg = s.conf.Oscar[trimmedName]
+	}
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", trimmedName))
+		return
+	}
+
+	displayName := trimmedName
+	if displayName == "" {
+		displayName = clusterName
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading info for cluster %q…", displayName))
+
+	go func(name string, cfg *cluster.Cluster) {
+		info, err := cfg.GetClusterInfo()
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load info for %q: %v", name, err))
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Cluster info loaded for %q", name))
+		text := formatClusterInfo(name, info)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(displayName, clusterCfg)
+}
+
 func (s *uiState) showConfirmation(text string, onConfirm func()) {
 	if s.pages == nil {
 		return
@@ -1211,6 +1260,41 @@ func defaultIfEmpty(val, fallback string) string {
 		return fallback
 	}
 	return val
+}
+
+func formatClusterInfo(clusterName string, info types.Info) string {
+	builder := &strings.Builder{}
+	if clusterName != "" {
+		fmt.Fprintf(builder, "[yellow]Cluster:[-] %s\n", clusterName)
+	}
+	if info.Version != "" {
+		fmt.Fprintf(builder, "[yellow]Version:[-] %s\n", info.Version)
+	}
+	if info.GitCommit != "" {
+		fmt.Fprintf(builder, "[yellow]Commit:[-] %s\n", info.GitCommit)
+	}
+	if info.Architecture != "" {
+		fmt.Fprintf(builder, "[yellow]Architecture:[-] %s\n", info.Architecture)
+	}
+	if info.KubeVersion != "" {
+		fmt.Fprintf(builder, "[yellow]Kubernetes:[-] %s\n", info.KubeVersion)
+	}
+	if backend := info.ServerlessBackendInfo; backend != nil {
+		if backend.Name != "" {
+			fmt.Fprintf(builder, "[yellow]Serverless:[-] %s", backend.Name)
+			if backend.Version != "" {
+				fmt.Fprintf(builder, " %s", backend.Version)
+			}
+			builder.WriteByte('\n')
+		} else if backend.Version != "" {
+			fmt.Fprintf(builder, "[yellow]Serverless:[-] %s\n", backend.Version)
+		}
+	}
+	out := strings.TrimRight(builder.String(), "\n")
+	if out == "" {
+		return "No cluster information available"
+	}
+	return out
 }
 
 func formatServiceDetails(svc *types.Service) string {
