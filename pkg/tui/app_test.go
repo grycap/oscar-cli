@@ -8,26 +8,6 @@ import (
 	"github.com/grycap/oscar/v3/pkg/types"
 )
 
-func TestSortedClusters(t *testing.T) {
-	input := map[string]*cluster.Cluster{
-		"beta":  {},
-		"alpha": {},
-		"gamma": {},
-	}
-
-	got := sortedClusters(input)
-	want := []string{"alpha", "beta", "gamma"}
-
-	if len(got) != len(want) {
-		t.Fatalf("unexpected length: got %d, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("sortedClusters mismatch at %d: got %s, want %s", i, got[i], want[i])
-		}
-	}
-}
-
 func TestTruncateString(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -73,6 +53,47 @@ func TestFormatServiceDetails(t *testing.T) {
 	if want := "ghcr.io/demo/service:latest"; !containsString(got, want) {
 		t.Fatalf("expected output to contain %q, got %q", want, got)
 	}
+}
+
+func TestFormatClusterConfig(t *testing.T) {
+	cfg := &cluster.Cluster{
+		Endpoint:         "https://example.test",
+		AuthUser:         "admin",
+		AuthPassword:     "supersecret",
+		OIDCAccountName:  "oidc",
+		OIDCRefreshToken: strings.Repeat("t", 80),
+		SSLVerify:        true,
+		Memory:           "256Mi",
+		LogLevel:         "INFO",
+	}
+
+	text := formatClusterConfig("example", cfg)
+	if strings.Contains(text, cfg.AuthPassword) {
+		t.Fatalf("password should be obfuscated, got %q", text)
+	}
+	if !strings.Contains(text, "auth_password: ") {
+		t.Fatalf("expected auth_password field")
+	}
+	if !strings.Contains(text, "ssl_verify: true") {
+		t.Fatalf("expected ssl_verify field")
+	}
+
+	line := extractLine(text, "oidc_refresh_token")
+	if len(line) == 0 {
+		t.Fatalf("expected oidc_refresh_token line")
+	}
+	if len(strings.TrimSpace(line)) > len("oidc_refresh_token:")+1+64 {
+		t.Fatalf("token line not trimmed: %q", line)
+	}
+}
+
+func extractLine(text, prefix string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, prefix) {
+			return line
+		}
+	}
+	return ""
 }
 
 func containsString(haystack, needle string) bool {

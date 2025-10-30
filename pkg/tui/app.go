@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,7 +96,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 	state.statusContainer.SetTitle("Status")
 	state.statusContainer.AddItem(state.statusView, 0, 1, false)
 
-	clusterNames := sortedClusters(conf.Oscar)
+	clusterNames := conf.ClusterIDs()
 	state.clusterNames = clusterNames
 	defaultCluster := conf.Default
 	if defaultCluster == "" && len(clusterNames) > 0 {
@@ -329,18 +328,18 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 	errMsg, blocked := s.failedClusters[name]
 	s.mutex.Unlock()
 
+	s.showClusterDetails(name)
+
 	if mode == modeBuckets {
 		if name == "" {
 			s.setStatus("[red]Select a cluster to view buckets")
 			s.queueUpdate(func() {
 				s.showBucketMessage("Select a cluster to view buckets")
-				s.detailsView.SetText("Select a bucket to inspect details")
 			})
 			return
 		}
 		s.queueUpdate(func() {
 			s.showBucketMessage("Loading buckets…")
-			s.detailsView.SetText("Select a bucket to inspect details")
 		})
 		go s.loadBuckets(ctx, name, false)
 		return
@@ -349,7 +348,6 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 	if name == "" {
 		s.queueUpdate(func() {
 			s.showServiceMessage("Select a cluster to view services")
-			s.detailsView.SetText("Select a service to inspect details")
 		})
 		return
 	}
@@ -358,15 +356,10 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 		s.setStatus(fmt.Sprintf("[red]%s", errMsg))
 		s.queueUpdate(func() {
 			s.showServiceMessage("Unable to load services")
-			s.detailsView.SetText("Select a service to inspect details")
 		})
 		go s.loadServices(ctx, name, true)
 		return
 	}
-
-	s.queueUpdate(func() {
-		s.detailsView.SetText("Select a service to inspect details")
-	})
 
 	go s.loadServices(ctx, name, false)
 }
@@ -385,6 +378,22 @@ func (s *uiState) refreshCurrent(ctx context.Context) {
 	} else {
 		go s.loadServices(ctx, name, true)
 	}
+}
+
+func (s *uiState) showClusterDetails(name string) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		s.queueUpdate(func() {
+			s.detailsView.SetText("Select a cluster to view details")
+		})
+		return
+	}
+
+	cfg := s.conf.Oscar[trimmed]
+	text := formatClusterConfig(trimmed, cfg)
+	s.queueUpdate(func() {
+		s.detailsView.SetText(text)
+	})
 }
 
 func (s *uiState) switchToBuckets(ctx context.Context) {
@@ -419,14 +428,14 @@ func (s *uiState) switchToBuckets(ctx context.Context) {
 		s.setStatus("[red]Select a cluster to view buckets")
 		s.queueUpdate(func() {
 			s.showBucketMessage("Select a cluster to view buckets")
-			s.detailsView.SetText("Select a bucket to inspect details")
 		})
+		s.showClusterDetails(clusterName)
 		return
 	}
 
+	s.showClusterDetails(clusterName)
 	s.queueUpdate(func() {
 		s.showBucketMessage("Loading buckets…")
-		s.detailsView.SetText("Select a bucket to inspect details")
 	})
 
 	s.mutex.Lock()
@@ -469,9 +478,7 @@ func (s *uiState) switchToServices(ctx context.Context) {
 	clusterName := s.currentCluster
 	s.mutex.Unlock()
 
-	s.queueUpdate(func() {
-		s.detailsView.SetText("Select a service to inspect details")
-	})
+	s.showClusterDetails(clusterName)
 
 	if len(services) > 0 {
 		s.renderServiceTable(services)
@@ -680,15 +687,6 @@ func (s *uiState) setStatus(message string) {
 	s.queueUpdate(func() {
 		s.statusView.SetText(text)
 	})
-}
-
-func sortedClusters(m map[string]*cluster.Cluster) []string {
-	names := make([]string, 0, len(m))
-	for name := range m {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 func indexOf(values []string, target string) int {
@@ -1603,6 +1601,63 @@ func formatServiceLogs(serviceName, jobName, logs string) string {
 	builder.WriteString("\n")
 	builder.WriteString(tview.Escape(clean))
 	return builder.String()
+}
+
+func formatClusterConfig(name string, cfg *cluster.Cluster) string {
+	title := strings.TrimSpace(name)
+	if title == "" {
+		title = "Cluster"
+	}
+	if cfg == nil {
+		return fmt.Sprintf("[yellow]%s:[-]\n    configuration not available", title)
+	}
+
+	builder := &strings.Builder{}
+	fmt.Fprintf(builder, "[yellow]%s:[-]\n", title)
+	appendField := func(label, value string) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		fmt.Fprintf(builder, "    %s: %s\n", label, value)
+	}
+
+	appendField("endpoint", cfg.Endpoint)
+	appendField("auth_user", cfg.AuthUser)
+	if cfg.AuthPassword != "" {
+		appendField("auth_password", maskSecret(cfg.AuthPassword))
+	}
+	appendField("oidc_account_name", cfg.OIDCAccountName)
+	if cfg.OIDCRefreshToken != "" {
+		appendField("oidc_refresh_token", trimToken(cfg.OIDCRefreshToken))
+	}
+	appendField("ssl_verify", strconv.FormatBool(cfg.SSLVerify))
+	appendField("memory", strings.TrimSpace(cfg.Memory))
+	appendField("log_level", strings.TrimSpace(cfg.LogLevel))
+
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+func maskSecret(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	const maxStars = 8
+	if len(secret) <= maxStars {
+		return strings.Repeat("*", len(secret))
+	}
+	return strings.Repeat("*", maxStars)
+}
+
+func trimToken(token string) string {
+	if token == "" {
+		return ""
+	}
+	firstLine := strings.Split(token, "\n")[0]
+	const limit = 64
+	if len(firstLine) > limit {
+		return firstLine[:limit]
+	}
+	return firstLine
 }
 
 func formatServiceDetails(svc *types.Service) string {

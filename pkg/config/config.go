@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,9 +27,12 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/grycap/oscar-cli/pkg/cluster"
+	goyaml "gopkg.in/yaml.v3"
 )
 
 const (
@@ -48,8 +52,9 @@ var (
 
 // Config stores the configuration of oscar-cli
 type Config struct {
-	Oscar   map[string]*cluster.Cluster `json:"oscar" binding:"required"`
-	Default string                      `json:"default,omitempty"`
+	Oscar        map[string]*cluster.Cluster `json:"oscar" binding:"required"`
+	Default      string                      `json:"default,omitempty"`
+	clusterOrder []string                    `json:"-" yaml:"-"`
 }
 
 // GetDefaultConfigPath returns the default configuration file path
@@ -84,12 +89,15 @@ func ReadConfig(configPath string) (config *Config, err error) {
 		if err = yaml.Unmarshal(content, config); err != nil {
 			return nil, errParsingConfigFile
 		}
+		config.applyClusterOrder(extractClusterOrderYAML(content))
 	} else {
 		// Default JSON
 		if err = json.Unmarshal(content, config); err != nil {
 			return nil, errParsingConfigFile
 		}
+		config.applyClusterOrder(extractClusterOrderJSON(content))
 	}
+	config.normalizeClusterOrder()
 
 	return config, nil
 }
@@ -140,6 +148,8 @@ func (config *Config) AddCluster(configPath string, id string, endpoint string, 
 	if len(config.Oscar) == 1 {
 		config.Default = id
 	}
+	config.recordClusterID(id)
+	config.normalizeClusterOrder()
 
 	// Marshal and write the config file
 	if err := config.writeConfig(configPath); err != nil {
@@ -158,6 +168,7 @@ func (config *Config) RemoveCluster(configPath, id string) error {
 
 	// Delete the cluster from config
 	delete(config.Oscar, id)
+	config.removeClusterID(id)
 
 	// Delete the identifier from default if set
 	if config.Default == id {
@@ -178,6 +189,17 @@ func (config *Config) CheckCluster(id string) error {
 		return fmt.Errorf(clusterNotDefinedMsg, id)
 	}
 	return nil
+}
+
+// ClusterIDs returns the cluster identifiers preserving the order defined in the configuration file.
+func (config *Config) ClusterIDs() []string {
+	if config == nil {
+		return nil
+	}
+	config.normalizeClusterOrder()
+	out := make([]string, len(config.clusterOrder))
+	copy(out, config.clusterOrder)
+	return out
 }
 
 func (config *Config) GetCluster(default_cluster bool, destinationClusterID string, clusterName string) (string, error) {
@@ -206,6 +228,134 @@ func (config *Config) GetCluster(default_cluster bool, destinationClusterID stri
 	}
 	return clusterName, nil
 
+}
+
+func (config *Config) applyClusterOrder(order []string) {
+	if len(order) == 0 {
+		config.clusterOrder = nil
+		return
+	}
+	config.clusterOrder = append([]string(nil), order...)
+}
+
+func (config *Config) recordClusterID(id string) {
+	if strings.TrimSpace(id) == "" {
+		return
+	}
+	for _, existing := range config.clusterOrder {
+		if existing == id {
+			return
+		}
+	}
+	config.clusterOrder = append(config.clusterOrder, id)
+}
+
+func (config *Config) removeClusterID(id string) {
+	if len(config.clusterOrder) == 0 {
+		return
+	}
+	filtered := config.clusterOrder[:0]
+	for _, existing := range config.clusterOrder {
+		if existing != id {
+			filtered = append(filtered, existing)
+		}
+	}
+	config.clusterOrder = append([]string(nil), filtered...)
+}
+
+func (config *Config) normalizeClusterOrder() {
+	if config == nil {
+		return
+	}
+	if config.Oscar == nil || len(config.Oscar) == 0 {
+		config.clusterOrder = nil
+		return
+	}
+	seen := make(map[string]struct{}, len(config.Oscar))
+	ordered := make([]string, 0, len(config.Oscar))
+	for _, id := range config.clusterOrder {
+		if _, ok := config.Oscar[id]; ok {
+			if _, dup := seen[id]; !dup {
+				seen[id] = struct{}{}
+				ordered = append(ordered, id)
+			}
+		}
+	}
+	remaining := make([]string, 0, len(config.Oscar))
+	for id := range config.Oscar {
+		if _, ok := seen[id]; !ok {
+			remaining = append(remaining, id)
+		}
+	}
+	sort.Strings(remaining)
+	config.clusterOrder = append(ordered, remaining...)
+}
+
+func extractClusterOrderYAML(data []byte) []string {
+	var node goyaml.Node
+	if err := goyaml.Unmarshal(data, &node); err != nil {
+		return nil
+	}
+	if len(node.Content) == 0 {
+		return nil
+	}
+	root := node.Content[0]
+	if root.Kind != goyaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		keyNode := root.Content[i]
+		if keyNode.Value != "oscar" {
+			continue
+		}
+		valueNode := root.Content[i+1]
+		if valueNode.Kind != goyaml.MappingNode {
+			return nil
+		}
+		order := make([]string, 0, len(valueNode.Content)/2)
+		for j := 0; j+1 < len(valueNode.Content); j += 2 {
+			order = append(order, valueNode.Content[j].Value)
+		}
+		return order
+	}
+	return nil
+}
+
+func extractClusterOrderJSON(data []byte) []string {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil
+	}
+	raw, ok := root["oscar"]
+	if !ok {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return nil
+	}
+	order := []string{}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return order
+		}
+		key, ok := keyTok.(string)
+		if !ok {
+			return order
+		}
+		order = append(order, key)
+		var discard interface{}
+		if err := dec.Decode(&discard); err != nil {
+			return order
+		}
+	}
+	_, _ = dec.Token()
+	return order
 }
 
 // SetDefault set a default cluster in the config file
