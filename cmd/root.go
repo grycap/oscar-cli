@@ -26,18 +26,32 @@ import (
 var (
 	configPath        string
 	defaultConfigPath string
+	rootCmd           *cobra.Command
 )
 
-var rootCmd = &cobra.Command{
-	Use:     "oscar-cli",
-	Short:   "A CLI tool to interact with OSCAR clusters",
-	Args:    cobra.NoArgs,
-	Aliases: []string{"oscar", "ocli"},
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Only display usage with args related errors
-		cmd.SilenceUsage = true
-	},
-	Run: runFunc,
+func newRootCommand() *cobra.Command {
+	resetPersistentState()
+
+	cmd := &cobra.Command{
+		Use:     "oscar-cli",
+		Short:   "A CLI tool to interact with OSCAR clusters",
+		Args:    cobra.NoArgs,
+		Aliases: []string{"oscar", "ocli"},
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			// Only display usage with args related errors
+			cmd.SilenceUsage = true
+		},
+		Run: runFunc,
+	}
+
+	cmd.AddCommand(makeVersionCmd())
+	cmd.AddCommand(makeClusterCmd())
+	cmd.AddCommand(makeServiceCmd())
+	cmd.AddCommand(makeHubCmd())
+	cmd.AddCommand(makeApplyCmd())
+	cmd.AddCommand(makeDeleteCmd())
+
+	return cmd
 }
 
 func runFunc(cmd *cobra.Command, args []string) {
@@ -59,10 +73,15 @@ func init() {
 		os.Exit(1)
 	}
 
-	rootCmd.AddCommand(makeVersionCmd())
-	rootCmd.AddCommand(makeClusterCmd())
-	rootCmd.AddCommand(makeServiceCmd())
-	rootCmd.AddCommand(makeHubCmd())
-	rootCmd.AddCommand(makeApplyCmd())
-	rootCmd.AddCommand(makeDeleteCmd())
+	rootCmd = newRootCommand()
+}
+
+// NewRootCommand construct a fresh root command instance.
+func NewRootCommand() *cobra.Command {
+	return newRootCommand()
+}
+
+func resetPersistentState() {
+	configPath = defaultConfigPath
+	destinationClusterID = ""
 }
