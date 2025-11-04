@@ -110,8 +110,8 @@ func (trt *tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	return trt.transport.RoundTrip(req)
 }
 
-// GetClient returns an HTTP client to communicate with the cluster
-func (cluster *Cluster) GetClient(args ...int) *http.Client {
+// GetClientSafe returns an HTTP client to communicate with the cluster without exiting on errors.
+func (cluster *Cluster) GetClientSafe(args ...int) (*http.Client, error) {
 	timeout := _DEFAULT_TIMEOUT
 
 	var transport http.RoundTripper = &http.Transport{
@@ -129,8 +129,7 @@ func (cluster *Cluster) GetClient(args ...int) *http.Client {
 		})
 
 		if err != nil {
-			fmt.Printf("Unable to get the OIDC token, please check your oidc-agent configuration. Error: %v\n", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("unable to get the OIDC token, please check your oidc-agent configuration: %w", err)
 		}
 
 		transport = &tokenRoundTripper{
@@ -140,8 +139,7 @@ func (cluster *Cluster) GetClient(args ...int) *http.Client {
 	} else if cluster.OIDCRefreshToken != "" {
 		accessToken, err := cluster.getAccessToken()
 		if err != nil {
-			fmt.Printf("Unable to get the OIDC token from refresh token, please check your configuration. Error: %v\n", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("unable to get the OIDC token from refresh token, please check your configuration: %w", err)
 		}
 		transport = &tokenRoundTripper{
 			token:     accessToken,
@@ -163,7 +161,17 @@ func (cluster *Cluster) GetClient(args ...int) *http.Client {
 	return &http.Client{
 		Transport: transport,
 		Timeout:   time.Second * time.Duration(timeout),
+	}, nil
+}
+
+// GetClient returns an HTTP client to communicate with the cluster
+func (cluster *Cluster) GetClient(args ...int) *http.Client {
+	client, err := cluster.GetClientSafe(args...)
+	if err != nil {
+		fmt.Printf("Unable to create the HTTP client: %v\n", err)
+		os.Exit(1)
 	}
+	return client
 }
 
 // GetClusterInfo returns info from an OSCAR cluster
@@ -179,7 +187,12 @@ func (cluster *Cluster) GetClusterInfo() (info types.Info, err error) {
 		return info, ErrMakingRequest
 	}
 
-	res, err := cluster.GetClient().Do(req)
+	client, err := cluster.GetClientSafe()
+	if err != nil {
+		return info, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return info, ErrSendingRequest
 	}
@@ -208,7 +221,12 @@ func (cluster *Cluster) GetClusterConfig() (cfg types.Config, err error) {
 		return cfg, ErrMakingRequest
 	}
 
-	res, err := cluster.GetClient().Do(req)
+	client, err := cluster.GetClientSafe()
+	if err != nil {
+		return cfg, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return cfg, ErrSendingRequest
 	}
