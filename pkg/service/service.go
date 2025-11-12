@@ -256,8 +256,12 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 
 // RunService invokes a service synchronously (a Serverless backend in the cluster is required)
 func RunService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
-	client, _ := c.GetClientSafe()
-
+	client := http.DefaultClient
+	if token == "" {
+		client, _ = c.GetClientSafe()
+	} else {
+		client = http.DefaultClient
+	}
 	var runServiceURL *url.URL
 	if endpoint != "" {
 		runServiceURL, err = url.Parse(endpoint)
@@ -293,7 +297,12 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 
 // JobService invokes a service asynchronously
 func JobService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
-	client, _ := c.GetClientSafe()
+	client := http.DefaultClient
+	if token == "" {
+		client, _ = c.GetClientSafe()
+	} else {
+		client = http.DefaultClient
+	}
 
 	var jobServiceURL *url.URL
 	if endpoint != "" {
