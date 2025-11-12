@@ -271,6 +271,9 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 	runServiceURL.Path = path.Join(runServiceURL.Path, runPath, name)
 	// Make the request
 	req, err := http.NewRequest(http.MethodPost, runServiceURL.String(), input)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	if err != nil {
 		return nil, cluster.ErrMakingRequest
 	}
@@ -305,6 +308,9 @@ func JobService(c *cluster.Cluster, name string, token string, endpoint string, 
 	jobServiceURL.Path = path.Join(jobServiceURL.Path, jobPath, name)
 	// Make the request
 	req, err := http.NewRequest(http.MethodPost, jobServiceURL.String(), input)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	if err != nil {
 		return nil, cluster.ErrMakingRequest
 	}

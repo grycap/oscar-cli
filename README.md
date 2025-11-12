@@ -31,7 +31,7 @@ The documentation is available on [OSCAR's web for CLI](https://docs.oscar.gryca
     - [default](#default)
     - [info](#info)
     - [list](#list)
-    - [remove](#remove)
+    - [delete](#delete)
   - [hub](#hub)
     - [list](#list-2)
     - [deploy](#deploy)
@@ -39,11 +39,11 @@ The documentation is available on [OSCAR's web for CLI](https://docs.oscar.gryca
   - [service](#service)
     - [get](#get)
     - [list](#list-1)
-    - [remove](#remove-1)
+    - [delete](#delete-1)
     - [run](#run)
     - [logs list](#logs-list)
     - [logs get](#logs-get)
-    - [logs remove](#logs-remove)
+    - [logs delete](#logs-delete)
     - [get-file](#get-file)
     - [put-file](#put-file)
     - [list-files](#list-files)
@@ -152,19 +152,19 @@ Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
 
-##### remove
+##### delete
 
-Remove a cluster from the configuration file.
+Delete a cluster from the configuration file.
 
 ```
 Usage:
-  oscar-cli cluster remove IDENTIFIER [flags]
+  oscar-cli cluster delete IDENTIFIER [flags]
 
 Aliases:
-  remove, rm
+  delete, d, del, remove, rm
 
 Flags:
-  -h, --help   help for remove
+  -h, --help   help for delete
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
@@ -286,20 +286,20 @@ Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
 
-##### remove
+##### delete
 
 Remove a service from the cluster.
 
 ```
 Usage:
-  oscar-cli service remove SERVICE_NAME... [flags]
+  oscar-cli service delete SERVICE_NAME... [flags]
 
 Aliases:
-  remove, rm
+  delete, d, del, remove, rm
 
 Flags:
   -c, --cluster string   set the cluster
-  -h, --help             help for remove
+  -h, --help             help for delete
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
@@ -311,17 +311,20 @@ Invoke a service synchronously (a Serverless backend in the cluster is required)
 
 ```
 Usage:
-  oscar-cli service run SERVICE_NAME {--input | --text-input} [flags]
+  oscar-cli service run SERVICE_NAME {--file-input | --text-input} [flags]
 
 Aliases:
   run, invoke, r
 
 Flags:
   -c, --cluster string      set the cluster
+  -e, --endpoint string     endpoint of a non registered cluster
+  -f, --file-input string   input file for the request
   -h, --help                help for run
-  -i, --input string        input file for the request
   -o, --output string       file path to store the output
-  -t, --text-input string   text input string for the request
+  -i, --text-input string   text input string for the request
+  -t, --token string        token of the service
+
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
@@ -368,16 +371,16 @@ Global Flags:
       --config string    set the location of the config file (YAML or JSON)
 ```
 
-##### logs remove
+##### logs delete
 
-Remove a service's job along with its logs.
+Delete a service's job along with its logs.
 
 ```
 Usage:
-  oscar-cli service logs remove SERVICE_NAME {JOB_NAME... | --succeeded | --all} [flags]
+  oscar-cli service logs delete SERVICE_NAME {JOB_NAME... | --succeeded | --all} [flags]
 
 Aliases:
-  remove, rm
+  delete, d, del, remove, rm
 
 Flags:
   -a, --all         remove all logs from the service
