@@ -29,6 +29,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,6 +60,21 @@ type BucketObject struct {
 	Size         int64
 	LastModified time.Time
 	Owner        string
+}
+
+// BucketListOptions controls pagination when listing bucket objects.
+type BucketListOptions struct {
+	PageToken    string
+	Limit        int
+	AutoPaginate bool
+}
+
+// BucketListResult contains bucket objects plus pagination metadata.
+type BucketListResult struct {
+	Objects       []*BucketObject
+	NextPage      string
+	IsTruncated   bool
+	ReturnedItems int
 }
 
 // ListBuckets returns the buckets available through the cluster MinIO provider.
@@ -167,6 +183,20 @@ func ListBucketObjects(c *cluster.Cluster, bucketName string) ([]*BucketObject, 
 
 // ListBucketObjectsWithContext returns the objects stored inside a bucket using the provided context.
 func ListBucketObjectsWithContext(ctx context.Context, c *cluster.Cluster, bucketName string) ([]*BucketObject, error) {
+	result, err := ListBucketObjectsWithOptionsContext(ctx, c, bucketName, nil)
+	if err != nil {
+		return nil, err
+	}
+	return result.Objects, nil
+}
+
+// ListBucketObjectsWithOptions lists bucket objects according to the provided options.
+func ListBucketObjectsWithOptions(c *cluster.Cluster, bucketName string, opts *BucketListOptions) (*BucketListResult, error) {
+	return ListBucketObjectsWithOptionsContext(context.Background(), c, bucketName, opts)
+}
+
+// ListBucketObjectsWithOptionsContext lists bucket objects according to options with the provided context.
+func ListBucketObjectsWithOptionsContext(ctx context.Context, c *cluster.Cluster, bucketName string, opts *BucketListOptions) (*BucketListResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -177,12 +207,59 @@ func ListBucketObjectsWithContext(ctx context.Context, c *cluster.Cluster, bucke
 	if trimmedBucket == "" {
 		return nil, errors.New("bucket name is required")
 	}
+	if opts == nil {
+		opts = &BucketListOptions{AutoPaginate: true}
+	}
 
+	pageToken := strings.TrimSpace(opts.PageToken)
+	limit := opts.Limit
+	auto := opts.AutoPaginate
+
+	accumulated := &BucketListResult{
+		Objects: make([]*BucketObject, 0),
+	}
+
+	for {
+		page, err := fetchBucketObjectsPage(ctx, c, trimmedBucket, limit, pageToken)
+		if err != nil {
+			return nil, err
+		}
+
+		accumulated.Objects = append(accumulated.Objects, page.Objects...)
+		accumulated.ReturnedItems += page.ReturnedItems
+		accumulated.NextPage = page.NextPage
+		accumulated.IsTruncated = page.IsTruncated
+
+		if !auto || page.NextPage == "" || !page.IsTruncated {
+			// Stop when auto pagination disabled or server indicates last page.
+			break
+		}
+
+		pageToken = page.NextPage
+	}
+
+	sort.Slice(accumulated.Objects, func(i, j int) bool {
+		return strings.ToLower(accumulated.Objects[i].Name) < strings.ToLower(accumulated.Objects[j].Name)
+	})
+
+	return accumulated, nil
+}
+
+func fetchBucketObjectsPage(ctx context.Context, c *cluster.Cluster, bucketName string, limit int, pageToken string) (*BucketListResult, error) {
 	endpoint, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return nil, cluster.ErrParsingEndpoint
 	}
-	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmedBucket)
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", bucketName)
+
+	query := endpoint.Query()
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	if pageToken != "" {
+		query.Set("page", pageToken)
+	}
+	endpoint.RawQuery = query.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
@@ -209,13 +286,13 @@ func ListBucketObjectsWithContext(ctx context.Context, c *cluster.Cluster, bucke
 		return nil, err
 	}
 
-	rawObjects, err := decodeBucketObjectsPayload(body)
+	parsed, err := decodeBucketObjectsResponse(body)
 	if err != nil {
 		return nil, err
 	}
 
-	objects := make([]*BucketObject, 0, len(rawObjects))
-	for _, item := range rawObjects {
+	objects := make([]*BucketObject, 0, len(parsed.Objects))
+	for _, item := range parsed.Objects {
 		name := strings.TrimSpace(item.Name)
 		if name == "" {
 			name = strings.TrimSpace(item.Key)
@@ -243,11 +320,12 @@ func ListBucketObjectsWithContext(ctx context.Context, c *cluster.Cluster, bucke
 		objects = append(objects, object)
 	}
 
-	sort.Slice(objects, func(i, j int) bool {
-		return strings.ToLower(objects[i].Name) < strings.ToLower(objects[j].Name)
-	})
-
-	return objects, nil
+	return &BucketListResult{
+		Objects:       objects,
+		NextPage:      parsed.NextPage,
+		IsTruncated:   parsed.IsTruncated,
+		ReturnedItems: parsed.ReturnedItems,
+	}, nil
 }
 
 type bucketObjectPayload struct {
@@ -260,34 +338,83 @@ type bucketObjectPayload struct {
 	Owner        string `json:"owner"`
 }
 
-func decodeBucketObjectsPayload(body []byte) ([]bucketObjectPayload, error) {
+type bucketObjectsResponse struct {
+	Objects       []bucketObjectPayload
+	NextPage      string
+	IsTruncated   bool
+	ReturnedItems int
+}
+
+func decodeBucketObjectsResponse(body []byte) (*bucketObjectsResponse, error) {
 	var direct []bucketObjectPayload
 	if err := json.Unmarshal(body, &direct); err == nil {
 		if direct == nil {
 			direct = []bucketObjectPayload{}
 		}
-		return direct, nil
+		return &bucketObjectsResponse{Objects: direct}, nil
 	}
 
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(body, &envelope); err != nil {
+	// Try a known envelope structure first
+	var envelope struct {
+		Objects       []bucketObjectPayload `json:"objects"`
+		NextPage      string                `json:"next_page"`
+		IsTruncated   bool                  `json:"is_truncated"`
+		ReturnedItems int                   `json:"returned_items"`
+	}
+	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Objects != nil {
+		return &bucketObjectsResponse{
+			Objects:       ensureBucketObjectSlice(envelope.Objects),
+			NextPage:      envelope.NextPage,
+			IsTruncated:   envelope.IsTruncated,
+			ReturnedItems: envelope.ReturnedItems,
+		}, nil
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, err
 	}
 
-	if list, ok := bucketObjectListFromMap(envelope); ok {
-		return list, nil
+	resp := &bucketObjectsResponse{}
+	if list, ok := bucketObjectListFromMap(raw); ok {
+		resp.Objects = list
 	}
+	assignString(raw, "next_page", &resp.NextPage)
+	assignBool(raw, "is_truncated", &resp.IsTruncated)
+	assignInt(raw, "returned_items", &resp.ReturnedItems)
 
-	if bucketNode, ok := envelope["bucket"]; ok {
-		var nested map[string]json.RawMessage
-		if err := json.Unmarshal(bucketNode, &nested); err == nil {
-			if list, ok := bucketObjectListFromMap(nested); ok {
-				return list, nil
+	if resp.Objects == nil {
+		if bucketNode, ok := raw["bucket"]; ok {
+			var nested map[string]json.RawMessage
+			if err := json.Unmarshal(bucketNode, &nested); err == nil {
+				if list, ok := bucketObjectListFromMap(nested); ok {
+					resp.Objects = list
+				}
+				if resp.NextPage == "" {
+					assignString(nested, "next_page", &resp.NextPage)
+				}
+				if !resp.IsTruncated {
+					assignBool(nested, "is_truncated", &resp.IsTruncated)
+				}
+				if resp.ReturnedItems == 0 {
+					assignInt(nested, "returned_items", &resp.ReturnedItems)
+				}
 			}
 		}
 	}
 
-	return []bucketObjectPayload{}, nil
+	if resp.Objects == nil {
+		resp.Objects = []bucketObjectPayload{}
+	}
+
+	return resp, nil
+}
+
+func ensureBucketObjectSlice(in []bucketObjectPayload) []bucketObjectPayload {
+	if in == nil {
+		return []bucketObjectPayload{}
+	}
+	return in
 }
 
 func bucketObjectListFromMap(m map[string]json.RawMessage) ([]bucketObjectPayload, bool) {
@@ -307,6 +434,33 @@ func bucketObjectListFromMap(m map[string]json.RawMessage) ([]bucketObjectPayloa
 		return list, true
 	}
 	return nil, false
+}
+
+func assignString(m map[string]json.RawMessage, key string, dst *string) {
+	if raw, ok := m[key]; ok {
+		var parsed string
+		if err := json.Unmarshal(raw, &parsed); err == nil {
+			*dst = parsed
+		}
+	}
+}
+
+func assignBool(m map[string]json.RawMessage, key string, dst *bool) {
+	if raw, ok := m[key]; ok {
+		var parsed bool
+		if err := json.Unmarshal(raw, &parsed); err == nil {
+			*dst = parsed
+		}
+	}
+}
+
+func assignInt(m map[string]json.RawMessage, key string, dst *int) {
+	if raw, ok := m[key]; ok {
+		var parsed int
+		if err := json.Unmarshal(raw, &parsed); err == nil {
+			*dst = parsed
+		}
+	}
 }
 
 var bucketTimeLayouts = []string{

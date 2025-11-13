@@ -39,32 +39,50 @@ func bucketListFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	bucketName := args[0]
-	objects, err := storage.ListBucketObjects(conf.Oscar[clusterName], bucketName)
+
+	pageToken, _ := cmd.Flags().GetString("page")
+	limit, _ := cmd.Flags().GetInt("limit")
+	allPages, _ := cmd.Flags().GetBool("all")
+
+	opts := &storage.BucketListOptions{
+		PageToken:    strings.TrimSpace(pageToken),
+		Limit:        limit,
+		AutoPaginate: allPages,
+	}
+
+	result, err := storage.ListBucketObjectsWithOptions(conf.Oscar[clusterName], bucketName, opts)
 	if err != nil {
 		return err
 	}
 
 	prefix, _ := cmd.Flags().GetString("prefix")
 	if trimmed := strings.TrimSpace(prefix); trimmed != "" {
-		filtered := objects[:0]
-		for _, obj := range objects {
+		filtered := result.Objects[:0]
+		for _, obj := range result.Objects {
 			if strings.HasPrefix(obj.Name, trimmed) {
 				filtered = append(filtered, obj)
 			}
 		}
-		objects = filtered
+		result.Objects = filtered
 	}
 
 	output, _ := cmd.Flags().GetString("output")
 	switch output {
 	case "json":
-		return bucketListPrintJSON(cmd, objects)
+		if err := bucketListPrintJSON(cmd, result.Objects); err != nil {
+			return err
+		}
 	case "table":
-		bucketListPrintTable(cmd, bucketName, objects)
-		return nil
+		bucketListPrintTable(cmd, bucketName, result.Objects)
 	default:
 		return fmt.Errorf("unsupported output format %q", output)
 	}
+
+	if !allPages && result.NextPage != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "\nMore objects are available. Continue listing with --page %q or fetch everything with --all.\n", result.NextPage)
+	}
+
+	return nil
 }
 
 func bucketListPrintJSON(cmd *cobra.Command, objects []*storage.BucketObject) error {
@@ -104,6 +122,9 @@ func makeBucketListCmd() *cobra.Command {
 	bucketListCmd.Flags().StringP("cluster", "c", "", "set the cluster")
 	bucketListCmd.Flags().StringP("output", "o", "table", "output format (table or json)")
 	bucketListCmd.Flags().String("prefix", "", "filter objects by key prefix")
+	bucketListCmd.Flags().String("page", "", "continuation token returned by a previous call")
+	bucketListCmd.Flags().Int("limit", 0, "maximum number of objects to request per call (default server limit)")
+	bucketListCmd.Flags().Bool("all", false, "automatically retrieve every page of results")
 
 	return bucketListCmd
 }

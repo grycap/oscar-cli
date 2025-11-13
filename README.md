@@ -500,6 +500,9 @@ Flags:
   -c, --cluster string   set the cluster
   -h, --help             help for list
   -o, --output string    output format (table or json) (default "table")
+      --all              automatically retrieve every page of objects
+      --limit int        maximum number of objects per request (defaults to server settings)
+      --page string      continuation token returned by a previous call
       --prefix string    filter objects by key prefix
 
 Global Flags:

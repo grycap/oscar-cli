@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -141,6 +142,85 @@ func TestGetProviderFromServiceDefinition(t *testing.T) {
 	}
 	if _, ok := prov.(*types.S3Provider); !ok {
 		t.Fatalf("expected S3 provider, got %T", prov)
+	}
+}
+
+func TestListBucketObjectsWithOptionsAutoPagination(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch calls {
+		case 1:
+			if r.URL.Query().Get("page") != "" {
+				t.Fatalf("expected empty page token on first request")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"objects":[{"object_name":"file-a","size_bytes":10,"last_modified":"2024-01-01T00:00:00Z"}],"next_page":"next-token","is_truncated":true,"returned_items":1}`)
+		case 2:
+			if r.URL.Query().Get("page") != "next-token" {
+				t.Fatalf("expected next-token page, got %q", r.URL.Query().Get("page"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"objects":[{"object_name":"file-b","size_bytes":20,"last_modified":"2024-01-02T00:00:00Z"}],"is_truncated":false,"returned_items":1}`)
+		default:
+			t.Fatalf("unexpected call %d", calls)
+		}
+	}))
+	defer server.Close()
+
+	c := &cluster.Cluster{
+		Endpoint:     server.URL,
+		AuthUser:     "user",
+		AuthPassword: "pass",
+		SSLVerify:    true,
+	}
+
+	result, err := ListBucketObjectsWithOptions(c, "demo", &BucketListOptions{AutoPaginate: true})
+	if err != nil {
+		t.Fatalf("ListBucketObjectsWithOptions returned error: %v", err)
+	}
+	if len(result.Objects) != 2 {
+		t.Fatalf("expected 2 objects, got %d", len(result.Objects))
+	}
+	if result.NextPage != "" || result.IsTruncated {
+		t.Fatalf("expected pagination to finish, got next_page=%q is_truncated=%v", result.NextPage, result.IsTruncated)
+	}
+}
+
+func TestListBucketObjectsWithOptionsSinglePageParams(t *testing.T) {
+	const expectedPage = "resume-token"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("page") != expectedPage {
+			t.Fatalf("expected page %q, got %q", expectedPage, q.Get("page"))
+		}
+		if q.Get("limit") != "50" {
+			t.Fatalf("expected limit 50, got %q", q.Get("limit"))
+		}
+		fmt.Fprint(w, `{"objects":[{"object_name":"only","size_bytes":1,"last_modified":"2024-01-01T00:00:00Z"}],"next_page":"another-token","is_truncated":true,"returned_items":1}`)
+	}))
+	defer server.Close()
+
+	c := &cluster.Cluster{
+		Endpoint:     server.URL,
+		AuthUser:     "user",
+		AuthPassword: "pass",
+		SSLVerify:    true,
+	}
+
+	result, err := ListBucketObjectsWithOptions(c, "demo", &BucketListOptions{
+		PageToken:    expectedPage,
+		Limit:        50,
+		AutoPaginate: false,
+	})
+	if err != nil {
+		t.Fatalf("ListBucketObjectsWithOptions returned error: %v", err)
+	}
+	if len(result.Objects) != 1 {
+		t.Fatalf("expected 1 object, got %d", len(result.Objects))
+	}
+	if result.NextPage != "another-token" || !result.IsTruncated {
+		t.Fatalf("unexpected pagination metadata: %+v", result)
 	}
 }
 
