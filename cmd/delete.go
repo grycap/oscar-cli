@@ -111,7 +111,7 @@ func makeDeleteCmd() *cobra.Command {
 		Use:     "delete FDL_FILE",
 		Short:   "Delete a FDL file to create or edit services in clusters",
 		Args:    cobra.ExactArgs(1),
-		Aliases: []string{"d"},
+		Aliases: []string{"d", "del", "remove", "rm"},
 		RunE:    deleteFunc,
 	}
 

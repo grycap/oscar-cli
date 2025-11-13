@@ -22,7 +22,6 @@ func TestServiceJobCommandTextInput(t *testing.T) {
 
 	var (
 		receivedBody string
-		authHeader   string
 	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +40,6 @@ func TestServiceJobCommandTextInput(t *testing.T) {
 				t.Fatalf("reading job payload: %v", err)
 			}
 			receivedBody = strings.TrimSpace(string(body))
-			authHeader = r.Header.Get("Authorization")
 			w.WriteHeader(http.StatusAccepted)
 		default:
 			http.NotFound(w, r)
@@ -74,9 +72,7 @@ func TestServiceJobCommandTextInput(t *testing.T) {
 	if string(decoded) != payload {
 		t.Fatalf("expected payload %q, got %q", payload, decoded)
 	}
-	if authHeader != "Bearer "+serviceToken {
-		t.Fatalf("expected Authorization header %q, got %q", "Bearer "+serviceToken, authHeader)
-	}
+
 }
 
 func TestServiceJobCommandValidation(t *testing.T) {

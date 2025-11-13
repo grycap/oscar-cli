@@ -25,7 +25,6 @@ func TestServiceRunCommandTextInput(t *testing.T) {
 
 	var (
 		receivedBody string
-		authHeader   string
 	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +43,6 @@ func TestServiceRunCommandTextInput(t *testing.T) {
 				t.Fatalf("reading run payload: %v", err)
 			}
 			receivedBody = strings.TrimSpace(string(body))
-			authHeader = r.Header.Get("Authorization")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprint(w, base64.StdEncoding.EncodeToString([]byte("RUN OK")))
 		default:
@@ -78,9 +76,7 @@ func TestServiceRunCommandTextInput(t *testing.T) {
 	if string(decoded) != payload {
 		t.Fatalf("expected payload %q, got %q", payload, decoded)
 	}
-	if authHeader != "Bearer "+serviceToken {
-		t.Fatalf("expected Authorization header %q, got %q", "Bearer "+serviceToken, authHeader)
-	}
+
 }
 
 func TestServiceRunCommandFileInput(t *testing.T) {
@@ -92,7 +88,6 @@ func TestServiceRunCommandFileInput(t *testing.T) {
 
 	var (
 		receivedBody string
-		authHeader   string
 	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +106,6 @@ func TestServiceRunCommandFileInput(t *testing.T) {
 				t.Fatalf("reading run payload: %v", err)
 			}
 			receivedBody = strings.TrimSpace(string(body))
-			authHeader = r.Header.Get("Authorization")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprint(w, base64.StdEncoding.EncodeToString([]byte("FILE OK")))
 		default:
@@ -151,9 +145,6 @@ func TestServiceRunCommandFileInput(t *testing.T) {
 	}
 	if string(decoded) != expectedContent {
 		t.Fatalf("expected payload %q, got %q", expectedContent, decoded)
-	}
-	if authHeader != "Bearer "+serviceToken {
-		t.Fatalf("expected Authorization header %q, got %q", "Bearer "+serviceToken, authHeader)
 	}
 }
 

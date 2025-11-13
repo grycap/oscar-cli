@@ -49,6 +49,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(makeServiceCmd())
 	cmd.AddCommand(makeHubCmd())
 	cmd.AddCommand(makeApplyCmd())
+	cmd.AddCommand(makeInteractiveCmd())
 	cmd.AddCommand(makeDeleteCmd())
 
 	return cmd

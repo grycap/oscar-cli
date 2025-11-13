@@ -52,7 +52,7 @@ The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_P
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.`,
 		Args:    cobra.MinimumNArgs(3),
-		Aliases: []string{"pf"},
+		Aliases: []string{"df", "del-fil", "remove-file", "rmf"},
 		RunE:    serviceDeleteFileFunc,
 	}
 
