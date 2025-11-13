@@ -31,6 +31,7 @@ const legendText = `[yellow]Navigation[-]
   w  Configure auto refresh
   b  Switch to buckets view
   s  Switch to services view
+  Enter  Focus bucket objects (bucket view)
   o  Reload bucket objects (bucket view)
   n/p  Next/previous bucket objects page
   a  Load all bucket objects
@@ -50,7 +51,7 @@ var (
 	bucketObjectHeaders = []string{"Name", "Size (B)", "Last Modified"}
 )
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type searchTarget int
 
@@ -79,7 +80,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 		detailsView:        tview.NewTextView().SetDynamicColors(true),
 		detailContainer:    tview.NewFlex().SetDirection(tview.FlexRow),
 		serviceTable:       tview.NewTable().SetSelectable(true, false),
-		bucketObjectsTable: tview.NewTable().SetSelectable(false, false),
+		bucketObjectsTable: tview.NewTable().SetSelectable(true, false),
 		clusterList:        tview.NewList().ShowSecondaryText(false),
 		mutex:              &sync.Mutex{},
 		currentCluster:     "",
@@ -184,6 +185,8 @@ func Run(ctx context.Context, conf *config.Config) error {
 					state.markServicePanelVisited()
 				}
 				app.SetFocus(state.serviceTable)
+			} else if state.modeIsBuckets() && app.GetFocus() == state.serviceTable {
+				state.focusBucketObjectsTable()
 			} else {
 				app.SetFocus(state.clusterList)
 			}
@@ -196,14 +199,26 @@ func Run(ctx context.Context, conf *config.Config) error {
 				app.SetFocus(state.serviceTable)
 				return nil
 			}
+			if state.modeIsBuckets() && app.GetFocus() == state.serviceTable {
+				state.focusBucketObjectsTable()
+				return nil
+			}
 		case tcell.KeyLeft:
 			if app.GetFocus() == state.serviceTable {
 				app.SetFocus(state.clusterList)
 				return nil
 			}
+			if app.GetFocus() == state.bucketObjectsTable {
+				app.SetFocus(state.serviceTable)
+				return nil
+			}
 		case tcell.KeyBacktab:
 			if app.GetFocus() == state.serviceTable {
 				app.SetFocus(state.clusterList)
+				return nil
+			}
+			if app.GetFocus() == state.bucketObjectsTable {
+				app.SetFocus(state.serviceTable)
 				return nil
 			}
 		}
@@ -227,6 +242,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 		case 'o', 'O':
 			if state.modeIsBuckets() {
 				state.reloadBucketObjects(ctx)
+				state.focusBucketObjectsTable()
 				return nil
 			}
 		case 'n', 'N':
@@ -835,7 +851,7 @@ func (s *uiState) handleSelection(row int, immediate bool) {
 	mode := s.mode
 	s.mutex.Unlock()
 	if mode == modeBuckets {
-		s.handleBucketSelection(row)
+		s.handleBucketSelection(row, immediate)
 		return
 	}
 	s.handleServiceSelection(row, immediate)
@@ -929,7 +945,7 @@ func (s *uiState) handleServiceSelection(row int, immediate bool) {
 	s.mutex.Unlock()
 }
 
-func (s *uiState) handleBucketSelection(row int) {
+func (s *uiState) handleBucketSelection(row int, immediate bool) {
 	s.mutex.Lock()
 	if s.mode != modeBuckets {
 		s.mutex.Unlock()
@@ -956,6 +972,9 @@ func (s *uiState) handleBucketSelection(row int) {
 	})
 	s.setCurrentBucketObjectsKey(makeBucketObjectsKey(clusterName, bucket.Name))
 	s.presentBucketObjects(clusterName, bucket.Name)
+	if immediate {
+		s.focusBucketObjectsTable()
+	}
 }
 
 func (s *uiState) setCurrentBucketObjectsKey(key string) {
@@ -1697,7 +1716,7 @@ func (s *uiState) searchBuckets(query string) bool {
 			row := idx + 1
 			s.queueUpdate(func() {
 				s.serviceTable.Select(row, 0)
-				s.handleBucketSelection(row)
+				s.handleBucketSelection(row, false)
 			})
 			return true
 		}
@@ -2016,12 +2035,27 @@ func (s *uiState) hideBucketObjectsPane() {
 	})
 }
 
+func (s *uiState) focusBucketObjectsTable() {
+	s.queueUpdate(func() {
+		s.ensureBucketObjectsPaneUnlocked()
+		rowCount := s.bucketObjectsTable.GetRowCount()
+		if rowCount > 1 {
+			row, _ := s.bucketObjectsTable.GetSelection()
+			if row <= 0 || row >= rowCount {
+				s.bucketObjectsTable.Select(1, 0)
+			}
+		}
+		s.app.SetFocus(s.bucketObjectsTable)
+	})
+}
+
 func (s *uiState) showBucketObjectsPrompt(message string) {
 	s.queueUpdate(func() {
 		s.ensureBucketObjectsPaneUnlocked()
 		s.bucketObjectsTable.SetTitle("Bucket Objects")
 		setBucketObjectTableHeader(s.bucketObjectsTable)
 		fillMessageRow(s.bucketObjectsTable, len(bucketObjectHeaders), message)
+		s.bucketObjectsTable.Select(0, 0)
 	})
 }
 
@@ -2035,6 +2069,7 @@ func (s *uiState) showBucketObjectsLoading(bucketName string) {
 		s.bucketObjectsTable.SetTitle(title)
 		setBucketObjectTableHeader(s.bucketObjectsTable)
 		fillMessageRow(s.bucketObjectsTable, len(bucketObjectHeaders), "Loading objects…")
+		s.bucketObjectsTable.Select(0, 0)
 	})
 }
 
@@ -2048,6 +2083,7 @@ func (s *uiState) showBucketObjectsError(bucketName string) {
 		s.bucketObjectsTable.SetTitle(title)
 		setBucketObjectTableHeader(s.bucketObjectsTable)
 		fillMessageRow(s.bucketObjectsTable, len(bucketObjectHeaders), "Unable to load objects")
+		s.bucketObjectsTable.Select(0, 0)
 	})
 }
 
@@ -2069,6 +2105,7 @@ func (s *uiState) renderBucketObjects(bucketName string, state *bucketObjectStat
 		setBucketObjectTableHeader(s.bucketObjectsTable)
 		if len(state.Objects) == 0 {
 			fillMessageRow(s.bucketObjectsTable, len(bucketObjectHeaders), "No objects found")
+			s.bucketObjectsTable.Select(0, 0)
 			return
 		}
 		for i, obj := range state.Objects {
@@ -2078,7 +2115,7 @@ func (s *uiState) renderBucketObjects(bucketName string, state *bucketObjectStat
 				lastModified = obj.LastModified.Format("2006-01-02 15:04:05")
 			}
 			s.bucketObjectsTable.SetCell(row, 0, tview.NewTableCell(obj.Name).
-				SetSelectable(false).
+				SetSelectable(true).
 				SetExpansion(5)).
 				SetCell(row, 1, tview.NewTableCell(strconv.FormatInt(obj.Size, 10)).
 					SetSelectable(false).
@@ -2086,6 +2123,10 @@ func (s *uiState) renderBucketObjects(bucketName string, state *bucketObjectStat
 				SetCell(row, 2, tview.NewTableCell(lastModified).
 					SetSelectable(false).
 					SetExpansion(3))
+		}
+		row, _ := s.bucketObjectsTable.GetSelection()
+		if row <= 0 || row > len(state.Objects) {
+			s.bucketObjectsTable.Select(1, 0)
 		}
 	})
 }
