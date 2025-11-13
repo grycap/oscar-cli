@@ -31,6 +31,9 @@ const legendText = `[yellow]Navigation[-]
   w  Configure auto refresh
   b  Switch to buckets view
   s  Switch to services view
+  o  Reload bucket objects (bucket view)
+  n/p  Next/previous bucket objects page
+  a  Load all bucket objects
   q  Quit
   ?  Toggle this help`
 
@@ -42,11 +45,12 @@ const (
 )
 
 var (
-	serviceHeaders = []string{"Name", "Image", "CPU", "Memory"}
-	bucketHeaders  = []string{"Name", "Visibility", "Owner"}
+	serviceHeaders      = []string{"Name", "Image", "CPU", "Memory"}
+	bucketHeaders       = []string{"Name", "Visibility", "Owner"}
+	bucketObjectHeaders = []string{"Name", "Size (B)", "Last Modified"}
 )
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type searchTarget int
 
@@ -68,23 +72,30 @@ func Run(ctx context.Context, conf *config.Config) error {
 
 	app := tview.NewApplication()
 	state := &uiState{
-		app:            app,
-		conf:           conf,
-		rootCtx:        ctx,
-		statusView:     tview.NewTextView().SetDynamicColors(true),
-		detailsView:    tview.NewTextView().SetDynamicColors(true),
-		serviceTable:   tview.NewTable().SetSelectable(true, false),
-		clusterList:    tview.NewList().ShowSecondaryText(false),
-		mutex:          &sync.Mutex{},
-		currentCluster: "",
-		failedClusters: make(map[string]string),
-		mode:           modeServices,
+		app:                app,
+		conf:               conf,
+		rootCtx:            ctx,
+		statusView:         tview.NewTextView().SetDynamicColors(true),
+		detailsView:        tview.NewTextView().SetDynamicColors(true),
+		detailContainer:    tview.NewFlex().SetDirection(tview.FlexRow),
+		serviceTable:       tview.NewTable().SetSelectable(true, false),
+		bucketObjectsTable: tview.NewTable().SetSelectable(false, false),
+		clusterList:        tview.NewList().ShowSecondaryText(false),
+		mutex:              &sync.Mutex{},
+		currentCluster:     "",
+		failedClusters:     make(map[string]string),
+		mode:               modeServices,
+		bucketObjects:      make(map[string]*bucketObjectState),
 	}
 
 	state.statusView.SetBorder(false)
 	state.detailsView.SetBorder(true)
 	state.detailsView.SetTitle("Details")
 	state.detailsView.SetText("Select a cluster to view details")
+	state.bucketObjectsTable.SetBorder(true)
+	state.bucketObjectsTable.SetTitle("Bucket Objects")
+	state.bucketObjectsTable.SetFixed(1, 0)
+	state.detailContainer.AddItem(state.detailsView, 0, 1, false)
 	state.serviceTable.SetBorder(true)
 	state.serviceTable.SetTitle("Services")
 	state.serviceTable.SetFixed(1, 0)
@@ -139,7 +150,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 	root := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(layout, 0, 4, true).
-		AddItem(state.detailsView, 0, 3, false).
+		AddItem(state.detailContainer, 0, 3, false).
 		AddItem(state.statusContainer, 4, 0, false)
 
 	state.statusView.SetText(state.decorateStatusText(statusHelpText))
@@ -213,6 +224,26 @@ func Run(ctx context.Context, conf *config.Config) error {
 		case 's', 'S':
 			state.switchToServices(ctx)
 			return nil
+		case 'o', 'O':
+			if state.modeIsBuckets() {
+				state.reloadBucketObjects(ctx)
+				return nil
+			}
+		case 'n', 'N':
+			if state.modeIsBuckets() {
+				state.nextBucketObjectsPage(ctx)
+				return nil
+			}
+		case 'p', 'P':
+			if state.modeIsBuckets() {
+				state.previousBucketObjectsPage(ctx)
+				return nil
+			}
+		case 'a', 'A':
+			if state.modeIsBuckets() {
+				state.loadAllBucketObjects(ctx)
+				return nil
+			}
 		case 'd', 'D':
 			if app.GetFocus() == state.serviceTable {
 				state.requestDeletion()
@@ -269,16 +300,18 @@ func Run(ctx context.Context, conf *config.Config) error {
 }
 
 type uiState struct {
-	app             *tview.Application
-	conf            *config.Config
-	rootCtx         context.Context
-	statusView      *tview.TextView
-	detailsView     *tview.TextView
-	serviceTable    *tview.Table
-	clusterList     *tview.List
-	statusContainer *tview.Flex
-	pages           *tview.Pages
-	mutex           *sync.Mutex
+	app                *tview.Application
+	conf               *config.Config
+	rootCtx            context.Context
+	statusView         *tview.TextView
+	detailsView        *tview.TextView
+	detailContainer    *tview.Flex
+	serviceTable       *tview.Table
+	bucketObjectsTable *tview.Table
+	clusterList        *tview.List
+	statusContainer    *tview.Flex
+	pages              *tview.Pages
+	mutex              *sync.Mutex
 
 	clusterNames             []string
 	currentCluster           string
@@ -300,6 +333,11 @@ type uiState struct {
 	bucketCancel             context.CancelFunc
 	bucketSeq                int
 	bucketCluster            string
+	bucketObjectsVisible     bool
+	bucketObjects            map[string]*bucketObjectState
+	currentBucketObjectsKey  string
+	bucketObjectsCancel      context.CancelFunc
+	bucketObjectsSeq         int
 	searchVisible            bool
 	searchInput              *tview.InputField
 	searchTarget             searchTarget
@@ -312,6 +350,22 @@ type uiState struct {
 	autoRefreshInput         *tview.InputField
 	autoRefreshFocus         tview.Primitive
 	servicePanelVisited      bool
+}
+
+type bucketObjectState struct {
+	Objects       []*storage.BucketObject
+	NextPage      string
+	PrevTokens    []string
+	CurrentToken  string
+	IsTruncated   bool
+	Auto          bool
+	ReturnedItems int
+}
+
+type bucketObjectRequest struct {
+	Token      string
+	PrevTokens []string
+	Auto       bool
 }
 
 func (s *uiState) selectCluster(ctx context.Context, name string) {
@@ -330,11 +384,16 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 		s.bucketCancel()
 		s.bucketCancel = nil
 	}
+	if s.bucketObjectsCancel != nil {
+		s.bucketObjectsCancel()
+		s.bucketObjectsCancel = nil
+	}
 	if s.detailTimer != nil {
 		s.detailTimer.Stop()
 		s.detailTimer = nil
 	}
 	s.lastSelection = ""
+	s.currentBucketObjectsKey = ""
 	s.currentCluster = name
 	mode := s.mode
 	errMsg, blocked := s.failedClusters[name]
@@ -438,6 +497,13 @@ func (s *uiState) modeIsServices() bool {
 	return mode == modeServices
 }
 
+func (s *uiState) modeIsBuckets() bool {
+	s.mutex.Lock()
+	mode := s.mode
+	s.mutex.Unlock()
+	return mode == modeBuckets
+}
+
 func (s *uiState) setServiceDetailsText(text string) {
 	if !s.serviceDetailsEnabled() {
 		return
@@ -472,6 +538,7 @@ func (s *uiState) switchToBuckets(ctx context.Context) {
 		s.detailTimer = nil
 	}
 	s.lastSelection = ""
+	s.currentBucketObjectsKey = ""
 	s.mutex.Unlock()
 
 	clusterName := s.currentCluster
@@ -480,6 +547,7 @@ func (s *uiState) switchToBuckets(ctx context.Context) {
 		s.queueUpdate(func() {
 			s.showBucketMessage("Select a cluster to view buckets")
 		})
+		s.showBucketObjectsPrompt("Select a bucket to list objects")
 		s.showClusterDetails(clusterName)
 		return
 	}
@@ -488,6 +556,7 @@ func (s *uiState) switchToBuckets(ctx context.Context) {
 	s.queueUpdate(func() {
 		s.showBucketMessage("Loading buckets…")
 	})
+	s.showBucketObjectsPrompt("Select a bucket to list objects")
 
 	s.mutex.Lock()
 	cached := s.bucketInfos
@@ -520,15 +589,21 @@ func (s *uiState) switchToServices(ctx context.Context) {
 		s.bucketCancel()
 		s.bucketCancel = nil
 	}
+	if s.bucketObjectsCancel != nil {
+		s.bucketObjectsCancel()
+		s.bucketObjectsCancel = nil
+	}
 	if s.detailTimer != nil {
 		s.detailTimer.Stop()
 		s.detailTimer = nil
 	}
 	s.lastSelection = ""
+	s.currentBucketObjectsKey = ""
 	services := s.currentServices
 	clusterName := s.currentCluster
 	s.mutex.Unlock()
 
+	s.hideBucketObjectsPane()
 	s.showClusterDetails(clusterName)
 
 	if len(services) > 0 {
@@ -860,18 +935,55 @@ func (s *uiState) handleBucketSelection(row int) {
 		s.mutex.Unlock()
 		return
 	}
-	if row <= 0 || row-1 >= len(s.bucketInfos) {
-		s.mutex.Unlock()
+	clusterName := s.currentCluster
+	var bucket *storage.BucketInfo
+	if row > 0 && row-1 < len(s.bucketInfos) {
+		bucket = s.bucketInfos[row-1]
+	}
+	s.mutex.Unlock()
+
+	if bucket == nil {
 		s.queueUpdate(func() {
 			s.detailsView.SetText("Select a bucket to inspect details")
 		})
+		s.setCurrentBucketObjectsKey("")
+		s.showBucketObjectsPrompt("Select a bucket to list objects")
 		return
 	}
-	bucket := s.bucketInfos[row-1]
-	s.mutex.Unlock()
+
 	s.queueUpdate(func() {
 		s.detailsView.SetText(formatBucketDetails(bucket))
 	})
+	s.setCurrentBucketObjectsKey(makeBucketObjectsKey(clusterName, bucket.Name))
+	s.presentBucketObjects(clusterName, bucket.Name)
+}
+
+func (s *uiState) setCurrentBucketObjectsKey(key string) {
+	s.mutex.Lock()
+	s.currentBucketObjectsKey = key
+	s.mutex.Unlock()
+}
+
+func makeBucketObjectsKey(clusterName, bucketName string) string {
+	return fmt.Sprintf("%s\x00%s", clusterName, bucketName)
+}
+
+func (s *uiState) presentBucketObjects(clusterName, bucketName string) {
+	if clusterName == "" || bucketName == "" {
+		s.showBucketObjectsPrompt("Select a bucket to list objects")
+		return
+	}
+	key := makeBucketObjectsKey(clusterName, bucketName)
+	s.mutex.Lock()
+	state := s.bucketObjects[key]
+	s.mutex.Unlock()
+	if state != nil && len(state.Objects) > 0 {
+		s.renderBucketObjects(bucketName, state)
+		s.updateBucketObjectsStatus(bucketName, state)
+		return
+	}
+	s.showBucketObjectsLoading(bucketName)
+	go s.fetchBucketObjects(s.rootCtx, clusterName, bucketName, &bucketObjectRequest{})
 }
 
 func (s *uiState) toggleLegend() {
@@ -1814,6 +1926,7 @@ func (s *uiState) renderBucketTable(buckets []*storage.BucketInfo) {
 		if len(buckets) == 0 {
 			fillMessageRow(s.serviceTable, len(bucketHeaders), "No buckets found")
 			s.detailsView.SetText("Select a bucket to inspect details")
+			s.showBucketObjectsPrompt("Select a bucket to list objects")
 			return
 		}
 		for i, bucket := range buckets {
@@ -1848,6 +1961,10 @@ func setBucketTableHeader(table *tview.Table) {
 	setTableHeader(table, bucketHeaders)
 }
 
+func setBucketObjectTableHeader(table *tview.Table) {
+	setTableHeader(table, bucketObjectHeaders)
+}
+
 func setTableHeader(table *tview.Table, headers []string) {
 	table.Clear()
 	for col, header := range headers {
@@ -1878,5 +1995,285 @@ func bucketVisibilityColor(vis string) tcell.Color {
 		return tcell.ColorGreen
 	default:
 		return tcell.ColorWhite
+	}
+}
+
+func (s *uiState) ensureBucketObjectsPaneUnlocked() {
+	if s.bucketObjectsVisible {
+		return
+	}
+	s.bucketObjectsVisible = true
+	s.detailContainer.AddItem(s.bucketObjectsTable, 0, 2, false)
+}
+
+func (s *uiState) hideBucketObjectsPane() {
+	s.queueUpdate(func() {
+		if !s.bucketObjectsVisible {
+			return
+		}
+		s.bucketObjectsVisible = false
+		s.detailContainer.RemoveItem(s.bucketObjectsTable)
+	})
+}
+
+func (s *uiState) showBucketObjectsPrompt(message string) {
+	s.queueUpdate(func() {
+		s.ensureBucketObjectsPaneUnlocked()
+		s.bucketObjectsTable.SetTitle("Bucket Objects")
+		setBucketObjectTableHeader(s.bucketObjectsTable)
+		fillMessageRow(s.bucketObjectsTable, len(bucketObjectHeaders), message)
+	})
+}
+
+func (s *uiState) showBucketObjectsLoading(bucketName string) {
+	title := "Bucket Objects"
+	if bucketName != "" {
+		title = fmt.Sprintf("Bucket Objects (%s)", bucketName)
+	}
+	s.queueUpdate(func() {
+		s.ensureBucketObjectsPaneUnlocked()
+		s.bucketObjectsTable.SetTitle(title)
+		setBucketObjectTableHeader(s.bucketObjectsTable)
+		fillMessageRow(s.bucketObjectsTable, len(bucketObjectHeaders), "Loading objects…")
+	})
+}
+
+func (s *uiState) showBucketObjectsError(bucketName string) {
+	title := "Bucket Objects"
+	if bucketName != "" {
+		title = fmt.Sprintf("Bucket Objects (%s)", bucketName)
+	}
+	s.queueUpdate(func() {
+		s.ensureBucketObjectsPaneUnlocked()
+		s.bucketObjectsTable.SetTitle(title)
+		setBucketObjectTableHeader(s.bucketObjectsTable)
+		fillMessageRow(s.bucketObjectsTable, len(bucketObjectHeaders), "Unable to load objects")
+	})
+}
+
+func (s *uiState) renderBucketObjects(bucketName string, state *bucketObjectState) {
+	if state == nil {
+		s.showBucketObjectsPrompt("Select a bucket to list objects")
+		return
+	}
+	title := "Bucket Objects"
+	if bucketName != "" {
+		title = fmt.Sprintf("Bucket Objects (%s)", bucketName)
+	}
+	if state.Auto {
+		title += " [all]"
+	}
+	s.queueUpdate(func() {
+		s.ensureBucketObjectsPaneUnlocked()
+		s.bucketObjectsTable.SetTitle(title)
+		setBucketObjectTableHeader(s.bucketObjectsTable)
+		if len(state.Objects) == 0 {
+			fillMessageRow(s.bucketObjectsTable, len(bucketObjectHeaders), "No objects found")
+			return
+		}
+		for i, obj := range state.Objects {
+			row := i + 1
+			lastModified := "-"
+			if !obj.LastModified.IsZero() {
+				lastModified = obj.LastModified.Format("2006-01-02 15:04:05")
+			}
+			s.bucketObjectsTable.SetCell(row, 0, tview.NewTableCell(obj.Name).
+				SetSelectable(false).
+				SetExpansion(5)).
+				SetCell(row, 1, tview.NewTableCell(strconv.FormatInt(obj.Size, 10)).
+					SetSelectable(false).
+					SetExpansion(2)).
+				SetCell(row, 2, tview.NewTableCell(lastModified).
+					SetSelectable(false).
+					SetExpansion(3))
+		}
+	})
+}
+
+func (s *uiState) updateBucketObjectsStatus(bucketName string, state *bucketObjectState) {
+	if state == nil {
+		return
+	}
+	count := len(state.Objects)
+	if state.Auto {
+		s.setStatus(fmt.Sprintf("[green]Loaded %d object(s) from %s", count, bucketName))
+		return
+	}
+	if state.NextPage != "" && state.IsTruncated {
+		msg := fmt.Sprintf("[yellow]%s: showing %d object(s). Press 'n' for next page", bucketName, count)
+		if len(state.PrevTokens) > 0 {
+			msg += ", 'p' for previous"
+		}
+		s.setStatus(msg)
+		return
+	}
+	if len(state.PrevTokens) > 0 {
+		s.setStatus(fmt.Sprintf("[green]%s: showing %d object(s). Press 'p' for previous page", bucketName, count))
+		return
+	}
+	s.setStatus(fmt.Sprintf("[green]%s: showing %d object(s)", bucketName, count))
+}
+
+func (s *uiState) currentBucketSelection() (string, *storage.BucketInfo) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.mode != modeBuckets {
+		return "", nil
+	}
+	clusterName := s.currentCluster
+	row, _ := s.serviceTable.GetSelection()
+	if row <= 0 || row-1 >= len(s.bucketInfos) {
+		return clusterName, nil
+	}
+	return clusterName, s.bucketInfos[row-1]
+}
+
+func (s *uiState) reloadBucketObjects(ctx context.Context) {
+	clusterName, bucket := s.currentBucketSelection()
+	if clusterName == "" || bucket == nil {
+		s.setStatus("[yellow]Select a bucket to reload objects")
+		return
+	}
+	s.setCurrentBucketObjectsKey(makeBucketObjectsKey(clusterName, bucket.Name))
+	s.showBucketObjectsLoading(bucket.Name)
+	go s.fetchBucketObjects(ctx, clusterName, bucket.Name, &bucketObjectRequest{})
+}
+
+func (s *uiState) nextBucketObjectsPage(ctx context.Context) {
+	clusterName, bucket := s.currentBucketSelection()
+	if clusterName == "" || bucket == nil {
+		s.setStatus("[yellow]Select a bucket to load more objects")
+		return
+	}
+	key := makeBucketObjectsKey(clusterName, bucket.Name)
+	s.mutex.Lock()
+	state := s.bucketObjects[key]
+	s.mutex.Unlock()
+	if state == nil || state.NextPage == "" {
+		s.setStatus(fmt.Sprintf("[yellow]No additional objects for %s", bucket.Name))
+		return
+	}
+	prevTokens := append([]string(nil), state.PrevTokens...)
+	prevTokens = append(prevTokens, state.CurrentToken)
+	s.setCurrentBucketObjectsKey(key)
+	s.showBucketObjectsLoading(bucket.Name)
+	go s.fetchBucketObjects(ctx, clusterName, bucket.Name, &bucketObjectRequest{
+		Token:      state.NextPage,
+		PrevTokens: prevTokens,
+	})
+}
+
+func (s *uiState) previousBucketObjectsPage(ctx context.Context) {
+	clusterName, bucket := s.currentBucketSelection()
+	if clusterName == "" || bucket == nil {
+		s.setStatus("[yellow]Select a bucket to load previous objects")
+		return
+	}
+	key := makeBucketObjectsKey(clusterName, bucket.Name)
+	s.mutex.Lock()
+	state := s.bucketObjects[key]
+	s.mutex.Unlock()
+	if state == nil || len(state.PrevTokens) == 0 {
+		s.setStatus(fmt.Sprintf("[yellow]%s is already at the first page", bucket.Name))
+		return
+	}
+	prevTokens := append([]string(nil), state.PrevTokens...)
+	token := prevTokens[len(prevTokens)-1]
+	prevTokens = prevTokens[:len(prevTokens)-1]
+	s.setCurrentBucketObjectsKey(key)
+	s.showBucketObjectsLoading(bucket.Name)
+	go s.fetchBucketObjects(ctx, clusterName, bucket.Name, &bucketObjectRequest{
+		Token:      token,
+		PrevTokens: prevTokens,
+	})
+}
+
+func (s *uiState) loadAllBucketObjects(ctx context.Context) {
+	clusterName, bucket := s.currentBucketSelection()
+	if clusterName == "" || bucket == nil {
+		s.setStatus("[yellow]Select a bucket to load all objects")
+		return
+	}
+	s.setCurrentBucketObjectsKey(makeBucketObjectsKey(clusterName, bucket.Name))
+	s.showBucketObjectsLoading(bucket.Name)
+	go s.fetchBucketObjects(ctx, clusterName, bucket.Name, &bucketObjectRequest{
+		Token: "",
+		Auto:  true,
+	})
+}
+
+func (s *uiState) fetchBucketObjects(ctx context.Context, clusterName, bucketName string, req *bucketObjectRequest) {
+	if req == nil {
+		req = &bucketObjectRequest{}
+	}
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		s.showBucketObjectsError(bucketName)
+		return
+	}
+
+	opts := &storage.BucketListOptions{
+		PageToken:    strings.TrimSpace(req.Token),
+		AutoPaginate: req.Auto,
+	}
+	key := makeBucketObjectsKey(clusterName, bucketName)
+
+	s.mutex.Lock()
+	if s.bucketObjectsCancel != nil {
+		s.bucketObjectsCancel()
+	}
+	s.bucketObjectsSeq++
+	seq := s.bucketObjectsSeq
+	ctxFetch, cancel := context.WithTimeout(ctx, 20*time.Second)
+	s.bucketObjectsCancel = cancel
+	s.mutex.Unlock()
+
+	result, err := storage.ListBucketObjectsWithOptionsContext(ctxFetch, clusterCfg, bucketName, opts)
+	cancel()
+
+	if err != nil {
+		s.mutex.Lock()
+		if seq == s.bucketObjectsSeq {
+			s.bucketObjectsCancel = nil
+		}
+		activeKey := s.currentBucketObjectsKey
+		s.mutex.Unlock()
+		s.setStatus(fmt.Sprintf("[red]Unable to load objects for %s: %v", bucketName, err))
+		if activeKey == key {
+			s.showBucketObjectsError(bucketName)
+		}
+		return
+	}
+
+	if result == nil {
+		result = &storage.BucketListResult{}
+	}
+	state := &bucketObjectState{
+		Objects:       append([]*storage.BucketObject(nil), result.Objects...),
+		NextPage:      result.NextPage,
+		PrevTokens:    append([]string(nil), req.PrevTokens...),
+		CurrentToken:  opts.PageToken,
+		IsTruncated:   result.IsTruncated,
+		Auto:          opts.AutoPaginate,
+		ReturnedItems: result.ReturnedItems,
+	}
+	if state.Objects == nil {
+		state.Objects = []*storage.BucketObject{}
+	}
+
+	s.mutex.Lock()
+	if seq != s.bucketObjectsSeq {
+		s.mutex.Unlock()
+		return
+	}
+	s.bucketObjectsCancel = nil
+	s.bucketObjects[key] = state
+	activeKey := s.currentBucketObjectsKey
+	s.mutex.Unlock()
+
+	if activeKey == key {
+		s.renderBucketObjects(bucketName, state)
+		s.updateBucketObjectsStatus(bucketName, state)
 	}
 }

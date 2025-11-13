@@ -530,6 +530,7 @@ While the UI is running you can:
 - Press `q` to quit the application.
 - Press `r` to refresh services for the selected cluster.
 - Use the arrow keys or `Tab` to move between clusters and services. Selecting a service shows its details in the lower pane.
+- When viewing buckets, use `o` to reload objects, `n`/`p` to page through results, and `a` to load every object available.
 
 ### version
 
