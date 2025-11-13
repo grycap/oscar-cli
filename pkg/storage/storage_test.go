@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar/v3/pkg/types"
@@ -140,5 +141,56 @@ func TestGetProviderFromServiceDefinition(t *testing.T) {
 	}
 	if _, ok := prov.(*types.S3Provider); !ok {
 		t.Fatalf("expected S3 provider, got %T", prov)
+	}
+}
+
+func TestParseBucketTimestamp(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		valid bool
+		want  time.Time
+	}{
+		{
+			name:  "RFC3339",
+			value: "2024-01-02T03:04:05Z",
+			valid: true,
+			want:  time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
+		},
+		{
+			name:  "RFC3339Nano",
+			value: "2024-01-02T03:04:05.123456Z",
+			valid: true,
+			want:  time.Date(2024, time.January, 2, 3, 4, 5, 123456000, time.UTC),
+		},
+		{
+			name:  "DefaultString",
+			value: "2024-01-02 03:04:05 +0000 UTC",
+			valid: true,
+			want:  time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
+		},
+		{
+			name:  "DefaultWithFraction",
+			value: "2024-01-02 03:04:05.000000000 +0000 UTC",
+			valid: true,
+			want:  time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
+		},
+		{
+			name:  "Invalid",
+			value: "not-a-date",
+			valid: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseBucketTimestamp(tt.value)
+			if ok != tt.valid {
+				t.Fatalf("parseBucketTimestamp(%q) valid=%t, want %t", tt.value, ok, tt.valid)
+			}
+			if tt.valid && !got.Equal(tt.want) {
+				t.Fatalf("expected %v, got %v", tt.want, got)
+			}
+		})
 	}
 }

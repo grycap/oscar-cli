@@ -47,6 +47,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(makeVersionCmd())
 	cmd.AddCommand(makeClusterCmd())
 	cmd.AddCommand(makeServiceCmd())
+	cmd.AddCommand(makeBucketCmd())
 	cmd.AddCommand(makeHubCmd())
 	cmd.AddCommand(makeApplyCmd())
 	cmd.AddCommand(makeInteractiveCmd())

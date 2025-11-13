@@ -47,6 +47,8 @@ The documentation is available on [OSCAR's web for CLI](https://docs.oscar.gryca
     - [get-file](#get-file)
     - [put-file](#put-file)
     - [list-files](#list-files)
+  - [bucket](#bucket)
+    - [list](#list-3)
   - [interactive](#interactive)
   - [version](#version)
   - [help](#help)
@@ -472,6 +474,33 @@ Aliases:
 Flags:
   -c, --cluster string   set the cluster
   -h, --help             help for list-files
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
+
+### bucket
+
+Inspect and manage OSCAR buckets to review their contents.
+
+#### Subcommands
+
+##### list
+
+List the objects stored in a bucket.
+
+```
+Usage:
+  oscar-cli bucket list BUCKET_NAME [flags]
+
+Aliases:
+  list, ls
+
+Flags:
+  -c, --cluster string   set the cluster
+  -h, --help             help for list
+  -o, --output string    output format (table or json) (default "table")
+      --prefix string    filter objects by key prefix
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)

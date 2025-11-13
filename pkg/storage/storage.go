@@ -53,6 +53,14 @@ type BucketInfo struct {
 	CreationDate time.Time
 }
 
+// BucketObject describes an object stored inside a bucket.
+type BucketObject struct {
+	Name         string
+	Size         int64
+	LastModified time.Time
+	Owner        string
+}
+
 // ListBuckets returns the buckets available through the cluster MinIO provider.
 func ListBuckets(c *cluster.Cluster) ([]*BucketInfo, error) {
 	return ListBucketsWithContext(context.Background(), c)
@@ -150,6 +158,171 @@ func ListBucketsWithContext(ctx context.Context, c *cluster.Cluster) ([]*BucketI
 	})
 
 	return buckets, nil
+}
+
+// ListBucketObjects returns the objects stored inside a bucket using the default context.
+func ListBucketObjects(c *cluster.Cluster, bucketName string) ([]*BucketObject, error) {
+	return ListBucketObjectsWithContext(context.Background(), c, bucketName)
+}
+
+// ListBucketObjectsWithContext returns the objects stored inside a bucket using the provided context.
+func ListBucketObjectsWithContext(ctx context.Context, c *cluster.Cluster, bucketName string) ([]*BucketObject, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if c == nil {
+		return nil, errors.New("cluster configuration not provided")
+	}
+	trimmedBucket := strings.TrimSpace(bucketName)
+	if trimmedBucket == "" {
+		return nil, errors.New("bucket name is required")
+	}
+
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return nil, cluster.ErrParsingEndpoint
+	}
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmedBucket)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, cluster.ErrMakingRequest
+	}
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return nil, err
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	rawObjects, err := decodeBucketObjectsPayload(body)
+	if err != nil {
+		return nil, err
+	}
+
+	objects := make([]*BucketObject, 0, len(rawObjects))
+	for _, item := range rawObjects {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = strings.TrimSpace(item.Key)
+		}
+		if name == "" {
+			name = strings.TrimSpace(item.ObjectName)
+		}
+		if name == "" {
+			continue
+		}
+		size := item.Size
+		if size == 0 {
+			size = item.SizeBytes
+		}
+		object := &BucketObject{
+			Name:  name,
+			Size:  size,
+			Owner: strings.TrimSpace(item.Owner),
+		}
+		if ts := strings.TrimSpace(item.LastModified); ts != "" {
+			if t, ok := parseBucketTimestamp(ts); ok {
+				object.LastModified = t
+			}
+		}
+		objects = append(objects, object)
+	}
+
+	sort.Slice(objects, func(i, j int) bool {
+		return strings.ToLower(objects[i].Name) < strings.ToLower(objects[j].Name)
+	})
+
+	return objects, nil
+}
+
+type bucketObjectPayload struct {
+	Name         string `json:"name"`
+	Key          string `json:"key"`
+	ObjectName   string `json:"object_name"`
+	Size         int64  `json:"size"`
+	SizeBytes    int64  `json:"size_bytes"`
+	LastModified string `json:"last_modified"`
+	Owner        string `json:"owner"`
+}
+
+func decodeBucketObjectsPayload(body []byte) ([]bucketObjectPayload, error) {
+	var direct []bucketObjectPayload
+	if err := json.Unmarshal(body, &direct); err == nil {
+		if direct == nil {
+			direct = []bucketObjectPayload{}
+		}
+		return direct, nil
+	}
+
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, err
+	}
+
+	if list, ok := bucketObjectListFromMap(envelope); ok {
+		return list, nil
+	}
+
+	if bucketNode, ok := envelope["bucket"]; ok {
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(bucketNode, &nested); err == nil {
+			if list, ok := bucketObjectListFromMap(nested); ok {
+				return list, nil
+			}
+		}
+	}
+
+	return []bucketObjectPayload{}, nil
+}
+
+func bucketObjectListFromMap(m map[string]json.RawMessage) ([]bucketObjectPayload, bool) {
+	candidates := []string{"objects", "files", "contents", "data"}
+	for _, key := range candidates {
+		raw, ok := m[key]
+		if !ok {
+			continue
+		}
+		var list []bucketObjectPayload
+		if err := json.Unmarshal(raw, &list); err != nil {
+			continue
+		}
+		if list == nil {
+			list = []bucketObjectPayload{}
+		}
+		return list, true
+	}
+	return nil, false
+}
+
+var bucketTimeLayouts = []string{
+	time.RFC3339Nano,
+	time.RFC3339,
+	"2006-01-02 15:04:05.999999999 -0700 MST",
+	"2006-01-02 15:04:05 -0700 MST",
+}
+
+func parseBucketTimestamp(ts string) (time.Time, bool) {
+	for _, layout := range bucketTimeLayouts {
+		if t, err := time.Parse(layout, ts); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // DeleteBucket removes a bucket from the specified cluster.
