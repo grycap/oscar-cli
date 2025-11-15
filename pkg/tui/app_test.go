@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar/v3/pkg/types"
@@ -84,6 +85,88 @@ func TestFormatClusterConfig(t *testing.T) {
 	}
 	if len(strings.TrimSpace(line)) > len("oidc_refresh_token:")+1+64 {
 		t.Fatalf("token line not trimmed: %q", line)
+	}
+}
+
+func TestFormatClusterStatus(t *testing.T) {
+	status := cluster.StatusInfo{
+		Cluster: cluster.ClusterStatus{
+			NodesCount: 2,
+			Metrics: cluster.ClusterMetrics{
+				CPU: cluster.CPUMetrics{
+					TotalFreeCores:     4,
+					MaxFreeOnNodeCores: 2,
+				},
+				Memory: cluster.MemoryMetrics{
+					TotalFreeBytes:     2048,
+					MaxFreeOnNodeBytes: 1024,
+				},
+				GPU: cluster.GPUMetrics{
+					TotalGPU: 1,
+				},
+			},
+			Nodes: []cluster.NodeDetail{
+				{
+					Name:   "node-a",
+					Status: "Ready",
+					CPU: cluster.NodeResource{
+						CapacityCores: 4,
+						UsageCores:    2,
+					},
+					Memory: cluster.NodeResource{
+						CapacityBytes: 4096,
+						UsageBytes:    1024,
+					},
+					GPU: 1,
+					Conditions: []cluster.NodeConditionSimple{
+						{Type: "Ready", Status: true},
+					},
+				},
+			},
+		},
+		Oscar: cluster.OscarStatus{
+			DeploymentName: "oscar-manager",
+			Ready:          true,
+			Deployment: cluster.OscarDeployment{
+				Replicas:          1,
+				ReadyReplicas:     1,
+				AvailableReplicas: 1,
+				CreationTimestamp: time.Unix(1700000000, 0).UTC(),
+			},
+			JobsCount: 2,
+			Pods: cluster.PodStates{
+				Total:  2,
+				States: map[string]int{"Running": 2},
+			},
+			OIDC: cluster.OIDCInfo{
+				Enabled: true,
+				Issuers: []string{"https://issuer"},
+			},
+		},
+		MinIO: cluster.MinioStatus{
+			BucketsCount: 3,
+			TotalObjects: 10,
+		},
+	}
+
+	text := formatClusterStatus("alpha", status)
+	for _, want := range []string{
+		"alpha",
+		"Nodes:",
+		"CPU:",
+		"Node details:",
+		"OSCAR:",
+		"MinIO:",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected output to contain %q, got %q", want, text)
+		}
+	}
+}
+
+func TestFormatClusterStatusEmpty(t *testing.T) {
+	if got := formatClusterStatus("", cluster.StatusInfo{}); got != "No cluster status available" {
+		t.Fatalf("expected fallback message, got %q", got)
 	}
 }
 
