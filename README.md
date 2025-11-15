@@ -132,6 +132,24 @@ Flags:
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
+
+##### status
+
+Show the status reported by the OSCAR Manager API, including node metrics, deployment readiness and MinIO statistics.
+
+```
+Usage:
+  oscar-cli cluster status [flags]
+
+Aliases:
+  status, s
+
+Flags:
+  -c, --cluster string   set the cluster
+  -h, --help             help for status
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
 ```
 
 ##### list
