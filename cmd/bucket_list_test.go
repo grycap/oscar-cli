@@ -146,16 +146,6 @@ func TestBucketListCommandPrivateBucket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bucket list returned error: %v", err)
 	}
-	/*if call != 2 {
-		t.Fatalf("expected 2 server calls, got %d", call)
-	}
-	if strings.Contains(stdout, "More objects are available") {
-		t.Fatalf("unexpected pagination hint when --all provided: %q", stdout)
-	}
-	if !strings.Contains(stdout, "foo") || !strings.Contains(stdout, "bar") {
-		t.Fatalf("expected both objects in output, got %q", stdout)
-	}*/
-
 	var objects []storage.BucketInfo
 	if err := json.Unmarshal([]byte(stdout), &objects); err != nil {
 		t.Fatalf("invalid json output: %v", err)
