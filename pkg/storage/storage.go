@@ -51,7 +51,6 @@ type BucketInfo struct {
 	Visibility   string
 	AllowedUsers []string
 	Owner        string
-	CreationDate time.Time
 }
 
 // BucketObject describes an object stored inside a bucket.
@@ -128,7 +127,7 @@ func ListBucketsWithContext(ctx context.Context, c *cluster.Cluster) ([]*BucketI
 		AllowedUsers []string `json:"allowed_users"`
 		Owner        string   `json:"owner"`
 		Provider     string   `json:"provider"`
-		CreationDate string   `json:"creation_date"`
+		//CreationDate string   `json:"creation_date"`
 	}
 
 	var (
@@ -159,13 +158,13 @@ func ListBucketsWithContext(ctx context.Context, c *cluster.Cluster) ([]*BucketI
 			AllowedUsers: append([]string(nil), item.AllowedUsers...),
 			Owner:        strings.TrimSpace(item.Owner),
 		}
-		if ts := strings.TrimSpace(item.CreationDate); ts != "" {
+		/*if ts := strings.TrimSpace(item.CreationDate); ts != "" {
 			if t, err := time.Parse(time.RFC3339, ts); err == nil {
 				info.CreationDate = t
 			} else if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
 				info.CreationDate = t
 			}
-		}
+		}*/
 		buckets = append(buckets, info)
 	}
 

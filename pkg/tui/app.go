@@ -1891,9 +1891,9 @@ func formatBucketDetails(bucket *storage.BucketInfo) string {
 		fmt.Fprintf(builder, "[yellow]Owner:[-] %s\n", bucket.Owner)
 	}
 
-	if !bucket.CreationDate.IsZero() {
+	/*if !bucket.CreationDate.IsZero() {
 		fmt.Fprintf(builder, "[yellow]Created:[-] %s\n", bucket.CreationDate.Format("2006-01-02 15:04"))
-	}
+	}*/
 	return builder.String()
 }
 

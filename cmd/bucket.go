@@ -33,6 +33,7 @@ func makeBucketCmd() *cobra.Command {
 
 	bucketCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
 
+	bucketCmd.AddCommand(makeBucketGetCmd())
 	bucketCmd.AddCommand(makeBucketListCmd())
 
 	return bucketCmd
