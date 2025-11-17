@@ -19,7 +19,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/grycap/oscar-cli/pkg/config"
@@ -38,9 +37,9 @@ func bucketListFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	bucketName := args[0]
+	//bucketName := args[0]
 
-	pageToken, _ := cmd.Flags().GetString("page")
+	/*pageToken, _ := cmd.Flags().GetString("page")
 	limit, _ := cmd.Flags().GetInt("limit")
 	allPages, _ := cmd.Flags().GetBool("all")
 
@@ -49,13 +48,13 @@ func bucketListFunc(cmd *cobra.Command, args []string) error {
 		Limit:        limit,
 		AutoPaginate: allPages,
 	}
-
-	result, err := storage.ListBucketObjectsWithOptions(conf.Oscar[clusterName], bucketName, opts)
+	*/
+	result, err := storage.ListBuckets(conf.Oscar[clusterName])
 	if err != nil {
 		return err
 	}
 
-	prefix, _ := cmd.Flags().GetString("prefix")
+	/*prefix, _ := cmd.Flags().GetString("prefix")
 	if trimmed := strings.TrimSpace(prefix); trimmed != "" {
 		filtered := result.Objects[:0]
 		for _, obj := range result.Objects {
@@ -64,48 +63,45 @@ func bucketListFunc(cmd *cobra.Command, args []string) error {
 			}
 		}
 		result.Objects = filtered
-	}
+	}*/
 
 	output, _ := cmd.Flags().GetString("output")
 	switch output {
 	case "json":
-		if err := bucketListPrintJSON(cmd, result.Objects); err != nil {
+		if err := bucketListPrintJSON(cmd, result); err != nil {
 			return err
 		}
 	case "table":
-		bucketListPrintTable(cmd, bucketName, result.Objects)
+		bucketListPrintTable(cmd, result)
 	default:
 		return fmt.Errorf("unsupported output format %q", output)
-	}
-
-	if !allPages && result.NextPage != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "\nMore objects are available. Continue listing with --page %q or fetch everything with --all.\n", result.NextPage)
 	}
 
 	return nil
 }
 
-func bucketListPrintJSON(cmd *cobra.Command, objects []*storage.BucketObject) error {
+func bucketListPrintJSON(cmd *cobra.Command, objects []*storage.BucketInfo) error {
 	encoder := json.NewEncoder(cmd.OutOrStdout())
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(objects)
 }
 
-func bucketListPrintTable(cmd *cobra.Command, bucketName string, objects []*storage.BucketObject) {
+func bucketListPrintTable(cmd *cobra.Command, objects []*storage.BucketInfo) {
 	out := cmd.OutOrStdout()
 	w := tabwriter.NewWriter(out, 0, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSIZE (B)\tLAST MODIFIED")
+	fmt.Fprintln(w, "NAME\tVISIBILITY\tALLOWED USERS\tOWNER")
 	for _, obj := range objects {
-		lastModified := "-"
-		if !obj.LastModified.IsZero() {
-			lastModified = obj.LastModified.Format("2006-01-02 15:04:05")
-		}
-		fmt.Fprintf(w, "%s\t%d\t%s\n", obj.Name, obj.Size, lastModified)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", obj.Name, obj.Visibility, obj.AllowedUsers, obj.Owner)
 	}
 	w.Flush()
 
 	if len(objects) == 0 {
-		fmt.Fprintf(out, "Bucket %q has no objects.\n", bucketName)
+		fmt.Fprintf(out, "There is no Bucket.\n")
+	}
+	w.Flush()
+
+	if len(objects) == 0 {
+		fmt.Fprintf(out, "There is no Bucket.\n")
 	}
 }
 
@@ -114,17 +110,17 @@ func makeBucketListCmd() *cobra.Command {
 		Use:     "list BUCKET_NAME",
 		Short:   "List the contents of a bucket",
 		Long:    "List the objects stored in an OSCAR bucket using the cluster storage API.",
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.ExactArgs(0),
 		Aliases: []string{"ls"},
 		RunE:    bucketListFunc,
 	}
 
 	bucketListCmd.Flags().StringP("cluster", "c", "", "set the cluster")
 	bucketListCmd.Flags().StringP("output", "o", "table", "output format (table or json)")
-	bucketListCmd.Flags().String("prefix", "", "filter objects by key prefix")
-	bucketListCmd.Flags().String("page", "", "continuation token returned by a previous call")
-	bucketListCmd.Flags().Int("limit", 0, "maximum number of objects to request per call (default server limit)")
-	bucketListCmd.Flags().Bool("all", false, "automatically retrieve every page of results")
+	//bucketListCmd.Flags().String("prefix", "", "filter objects by key prefix")
+	//bucketListCmd.Flags().String("page", "", "continuation token returned by a previous call")
+	//bucketListCmd.Flags().Int("limit", 0, "maximum number of objects to request per call (default server limit)")
+	//bucketListCmd.Flags().Bool("all", false, "automatically retrieve every page of results")
 
 	return bucketListCmd
 }

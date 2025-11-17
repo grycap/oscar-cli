@@ -5,22 +5,21 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/grycap/oscar-cli/pkg/storage"
 )
 
-func TestBucketListCommandPrintsObjects(t *testing.T) {
+func TestBucketGetCommandPrintsObjects(t *testing.T) {
 	const clusterName = "bucket-cluster"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/system/buckets" {
+		if r.Method == http.MethodGet && r.URL.Path == "/system/buckets/sample" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `[
-				{"bucket_name":"foo","visibility":"restricted","provider":"-","allowed_users":["user1","user2"],"owner":"owner1"},
-				{"bucket_name":"bar","visibility":"restricted","provider":"-","allowed_users":["user3"],"owner":"owner2"}
-			]`)
+			fmt.Fprint(w, `{"objects":[
+				{"name":"foo.txt","size":12,"last_modified":"2024-01-01T10:00:00Z"},
+				{"name":"bar.log","size":42,"last_modified":"2024-01-02T11:00:00Z"}
+			]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -31,30 +30,30 @@ func TestBucketListCommandPrintsObjects(t *testing.T) {
 
 	stdout, stderr, err := runCommand(t,
 		"bucket", "--config", configFile,
-		"list",
+		"get", "sample",
 		"--cluster", clusterName,
 	)
 	if err != nil {
-		t.Fatalf("bucket list returned error: %v", err)
+		t.Fatalf("bucket get returned error: %v", err)
 	}
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, "foo") || !strings.Contains(stdout, "bar") {
+	if !strings.Contains(stdout, "foo.txt") || !strings.Contains(stdout, "bar.log") {
 		t.Fatalf("unexpected bucket list output: %q", stdout)
 	}
 }
 
-func TestBucketListCommandJSONOutput(t *testing.T) {
+func TestBucketGetCommandJSONOutput(t *testing.T) {
 	const clusterName = "bucket-cluster-json"
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/system/buckets" {
+		if r.Method == http.MethodGet && r.URL.Path == "/system/buckets/sample" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `[
-				{"bucket_name":"foo","visibility":"restricted","provider":"-","allowed_users":["user1","user2"],"owner":"owner1"},
-				{"bucket_name":"bar","visibility":"restricted","provider":"-","allowed_users":["user3"],"owner":"owner2"}
-			]`)
+			fmt.Fprint(w, `{"objects":[
+				{"name":"logs/foo.txt","size":12,"last_modified":"2024-01-01T10:00:00Z"},
+				{"name":"data/bar.log","size":42,"last_modified":"2024-01-02T11:00:00Z"}
+			]}`)
 			return
 		}
 		http.NotFound(w, r)
@@ -65,9 +64,10 @@ func TestBucketListCommandJSONOutput(t *testing.T) {
 
 	stdout, stderr, err := runCommand(t,
 		"bucket", "--config", configFile,
-		"list",
+		"get", "sample",
 		"--cluster", clusterName,
 		"--output", "json",
+		"--prefix", "logs/",
 	)
 	if err != nil {
 		t.Fatalf("bucket list returned error: %v", err)
@@ -76,26 +76,28 @@ func TestBucketListCommandJSONOutput(t *testing.T) {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
 
-	var objects []storage.BucketInfo
+	var objects []struct {
+		Name string `json:"name"`
+		Size int64  `json:"size"`
+	}
 	if err := json.Unmarshal([]byte(stdout), &objects); err != nil {
 		t.Fatalf("invalid json output: %v", err)
 	}
-	if len(objects) != 2 || objects[0].Name != "bar" {
+	if len(objects) != 1 || objects[0].Name != "logs/foo.txt" {
 		t.Fatalf("unexpected json output: %v", objects)
 	}
 }
 
-func TestBucketListCommandPublicBucket(t *testing.T) {
+func TestBucketGetCommandPaginationFlags(t *testing.T) {
 	const (
 		clusterName = "bucket-cluster-page"
 		pageToken   = "page-123"
 	)
 
+	var captured url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `[
-				{"bucket_name":"foo","visibility":"public","provider":"-","allowed_users":[],"owner":"owner1"}
-			]`)
-		return
+		captured = r.URL.Query()
+		fmt.Fprint(w, `{"objects":[{"object_name":"foo","size_bytes":1}],"next_page":"token-2","is_truncated":true}`)
 	}))
 	defer server.Close()
 
@@ -103,35 +105,36 @@ func TestBucketListCommandPublicBucket(t *testing.T) {
 
 	stdout, _, err := runCommand(t,
 		"bucket", "--config", configFile,
-		"list",
+		"get", "sample",
 		"--cluster", clusterName,
-		"--output", "json",
+		"--limit", "5",
+		"--page", pageToken,
 	)
 	if err != nil {
-		t.Fatalf("bucket list returned error: %v", err)
+		t.Fatalf("bucket get returned error: %v", err)
 	}
-
-	var objects []storage.BucketInfo
-	if err := json.Unmarshal([]byte(stdout), &objects); err != nil {
-		t.Fatalf("invalid json output: %v", err)
+	if captured.Get("limit") != "5" || captured.Get("page") != pageToken {
+		t.Fatalf("unexpected query parameters: %v", captured)
 	}
-	if len(objects) != 1 || objects[0].Visibility != "public" {
-		t.Fatalf("unexpected json output: %v", objects)
+	if !strings.Contains(stdout, "More objects are available") {
+		t.Fatalf("expected pagination hint, got %q", stdout)
 	}
 }
 
-func TestBucketListCommandPrivateBucket(t *testing.T) {
+func TestBucketGetCommandAllPagesFlag(t *testing.T) {
 	const clusterName = "bucket-cluster-all"
 
 	call := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		call++
 		if call == 1 {
-			fmt.Fprint(w, `[
-				{"bucket_name":"foo","visibility":"private","provider":"-","allowed_users":[],"owner":"owner1"}
-			]`)
+			fmt.Fprint(w, `{"objects":[{"object_name":"foo","size_bytes":1}],"next_page":"token-2","is_truncated":true,"returned_items":1}`)
 			return
 		}
+		if r.URL.Query().Get("page") != "token-2" {
+			t.Fatalf("expected token-2 page, got %q", r.URL.Query().Get("page"))
+		}
+		fmt.Fprint(w, `{"objects":[{"object_name":"bar","size_bytes":2}],"is_truncated":false,"returned_items":1}`)
 	}))
 	defer server.Close()
 
@@ -139,14 +142,14 @@ func TestBucketListCommandPrivateBucket(t *testing.T) {
 
 	stdout, _, err := runCommand(t,
 		"bucket", "--config", configFile,
-		"list",
+		"get", "sample",
 		"--cluster", clusterName,
-		"--output", "json",
+		"--all",
 	)
 	if err != nil {
-		t.Fatalf("bucket list returned error: %v", err)
+		t.Fatalf("bucket get returned error: %v", err)
 	}
-	/*if call != 2 {
+	if call != 2 {
 		t.Fatalf("expected 2 server calls, got %d", call)
 	}
 	if strings.Contains(stdout, "More objects are available") {
@@ -154,13 +157,5 @@ func TestBucketListCommandPrivateBucket(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "foo") || !strings.Contains(stdout, "bar") {
 		t.Fatalf("expected both objects in output, got %q", stdout)
-	}*/
-
-	var objects []storage.BucketInfo
-	if err := json.Unmarshal([]byte(stdout), &objects); err != nil {
-		t.Fatalf("invalid json output: %v", err)
-	}
-	if len(objects) != 1 || objects[0].Visibility != "private" {
-		t.Fatalf("unexpected json output: %v", objects)
 	}
 }
