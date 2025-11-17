@@ -47,6 +47,8 @@ The documentation is available on [OSCAR's web for CLI](https://docs.oscar.gryca
     - [get-file](#get-file)
     - [put-file](#put-file)
     - [list-files](#list-files)
+  - [bucket](#bucket)
+    - [list](#list-3)
   - [interactive](#interactive)
   - [version](#version)
   - [help](#help)
@@ -495,6 +497,36 @@ Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
 
+### bucket
+
+Inspect and manage OSCAR buckets to review their contents.
+
+#### Subcommands
+
+##### list
+
+List the objects stored in a bucket.
+
+```
+Usage:
+  oscar-cli bucket list BUCKET_NAME [flags]
+
+Aliases:
+  list, ls
+
+Flags:
+  -c, --cluster string   set the cluster
+  -h, --help             help for list
+  -o, --output string    output format (table or json) (default "table")
+      --all              automatically retrieve every page of objects
+      --limit int        maximum number of objects per request (defaults to server settings)
+      --page string      continuation token returned by a previous call
+      --prefix string    filter objects by key prefix
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
+
 ### interactive
 
 Launch an interactive terminal interface to browse OSCAR clusters and services.
@@ -516,6 +548,7 @@ While the UI is running you can:
 - Press `q` to quit the application.
 - Press `r` to refresh services for the selected cluster.
 - Use the arrow keys or `Tab` to move between clusters and services. Selecting a service shows its details in the lower pane.
+- When viewing buckets, press `Enter` to focus the object list, use `o` to reload objects, `n`/`p` to page through results, and `a` to load every object available.
 
 ### version
 
