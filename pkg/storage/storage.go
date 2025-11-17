@@ -51,7 +51,6 @@ type BucketInfo struct {
 	Visibility   string
 	AllowedUsers []string
 	Owner        string
-	//CreationDate time.Time
 }
 
 // BucketObject describes an object stored inside a bucket.
