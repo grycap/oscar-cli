@@ -31,18 +31,25 @@ The documentation is available on [OSCAR's web for CLI](https://docs.oscar.gryca
     - [default](#default)
     - [info](#info)
     - [list](#list)
-    - [remove](#remove)
+    - [delete](#delete)
+  - [hub](#hub)
+    - [list](#list-2)
+    - [deploy](#deploy)
+    - [validate](#validate)
   - [service](#service)
     - [get](#get)
     - [list](#list-1)
-    - [remove](#remove-1)
+    - [delete](#delete-1)
     - [run](#run)
     - [logs list](#logs-list)
     - [logs get](#logs-get)
-    - [logs remove](#logs-remove)
+    - [logs delete](#logs-delete)
     - [get-file](#get-file)
     - [put-file](#put-file)
     - [list-files](#list-files)
+  - [bucket](#bucket)
+    - [list](#list-3)
+  - [interactive](#interactive)
   - [version](#version)
   - [help](#help)
 
@@ -59,6 +66,7 @@ Aliases:
 
 Flags:
       --config string   set the location of the config file (YAML or JSON)
+  -c, --cluster string  override the cluster id defined in the FDL file
   -h, --help            help for apply
 ```
 
@@ -146,19 +154,91 @@ Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
 
-##### remove
+##### delete
 
-Remove a cluster from the configuration file.
+Delete a cluster from the configuration file.
 
 ```
 Usage:
-  oscar-cli cluster remove IDENTIFIER [flags]
+  oscar-cli cluster delete IDENTIFIER [flags]
 
 Aliases:
-  remove, rm
+  delete, d, del, remove, rm
 
 Flags:
-  -h, --help   help for remove
+  -h, --help   help for delete
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
+
+### hub
+
+Browse curated service definitions published in OSCAR Hub.
+
+#### Subcommands
+
+##### list
+
+List curated OSCAR services available in the Hub.
+
+```
+Usage:
+  oscar-cli hub list [flags]
+
+Aliases:
+  list, ls
+
+Flags:
+      --json          print the list in JSON format
+      --owner string  GitHub owner that hosts the curated services (default "grycap")
+      --path string   subdirectory inside the repository that contains the services
+      --ref string    Git reference (branch, tag, or commit) to query (default "main")
+      --repo string   GitHub repository that hosts the curated services (default "oscar-hub")
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
+
+##### deploy
+
+Deploy a curated OSCAR service into a configured cluster.
+
+```
+Usage:
+  oscar-cli hub deploy SERVICE-SLUG [flags]
+
+Flags:
+  -c, --cluster string  set the cluster
+      --local-path string  use a local directory containing the RO-Crate metadata instead of fetching it from GitHub
+      --owner string    GitHub owner that hosts the curated services (default "grycap")
+      --path string     subdirectory inside the repository that contains the services
+      --ref string      Git reference (branch, tag, or commit) to query (default "main")
+  -n, --name string     override the OSCAR service name during deployment
+      --repo string     GitHub repository that hosts the curated services (default "oscar-hub")
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
+
+Default curated source: https://github.com/grycap/oscar-hub/tree/main
+
+##### validate
+
+Run the acceptance tests defined in a curated RO-Crate against a deployed service.
+
+```
+Usage:
+  oscar-cli hub validate SERVICE-SLUG [flags]
+
+Flags:
+  -c, --cluster string   set the cluster
+      --local-path string  use a local directory containing the RO-Crate metadata instead of fetching it from GitHub
+      --owner string     GitHub owner that hosts the curated services (default "grycap")
+      --path string      subdirectory inside the repository that contains the services
+      --ref string       Git reference (branch, tag, or commit) to query (default "main")
+  -n, --name string      override the OSCAR service name during validation
+      --repo string      GitHub repository that hosts the curated services (default "oscar-hub")
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
@@ -208,20 +288,20 @@ Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
 
-##### remove
+##### delete
 
 Remove a service from the cluster.
 
 ```
 Usage:
-  oscar-cli service remove SERVICE_NAME... [flags]
+  oscar-cli service delete SERVICE_NAME... [flags]
 
 Aliases:
-  remove, rm
+  delete, d, del, remove, rm
 
 Flags:
   -c, --cluster string   set the cluster
-  -h, --help             help for remove
+  -h, --help             help for delete
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
@@ -233,17 +313,20 @@ Invoke a service synchronously (a Serverless backend in the cluster is required)
 
 ```
 Usage:
-  oscar-cli service run SERVICE_NAME {--input | --text-input} [flags]
+  oscar-cli service run SERVICE_NAME {--file-input | --text-input} [flags]
 
 Aliases:
   run, invoke, r
 
 Flags:
   -c, --cluster string      set the cluster
+  -e, --endpoint string     endpoint of a non registered cluster
+  -f, --file-input string   input file for the request
   -h, --help                help for run
-  -i, --input string        input file for the request
   -o, --output string       file path to store the output
-  -t, --text-input string   text input string for the request
+  -i, --text-input string   text input string for the request
+  -t, --token string        token of the service
+
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
@@ -275,13 +358,14 @@ Get the logs from a service's job.
 
 ```
 Usage:
-  oscar-cli service logs get SERVICE_NAME JOB_NAME [flags]
+  oscar-cli service logs get SERVICE_NAME [JOB_NAME] [flags]
 
 Aliases:
   get, g
 
 Flags:
   -h, --help              help for get
+  -l, --latest            get logs from the most recent job
   -t, --show-timestamps   show timestamps in the logs
 
 Global Flags:
@@ -289,16 +373,16 @@ Global Flags:
       --config string    set the location of the config file (YAML or JSON)
 ```
 
-##### logs remove
+##### logs delete
 
-Remove a service's job along with its logs.
+Delete a service's job along with its logs.
 
 ```
 Usage:
-  oscar-cli service logs remove SERVICE_NAME {JOB_NAME... | --succeeded | --all} [flags]
+  oscar-cli service logs delete SERVICE_NAME {JOB_NAME... | --succeeded | --all} [flags]
 
 Aliases:
-  remove, rm
+  delete, d, del, remove, rm
 
 Flags:
   -a, --all         remove all logs from the service
@@ -317,17 +401,28 @@ Get a file from a service's storage provider.
 The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.
+If STORAGE_PROVIDER is not provided, the first output provider defined in the service is used.
+Passing `--download-latest-into[=PATH]` fetches the newest object detected under the provided remote path.
+When `PATH` refers to a directory (or ends with a path separator) the file is saved there keeping its original filename.
+If `PATH` points to a file (for example, has an extension), that exact local filename is used.
+If `REMOTE_PATH` is omitted while using `--download-latest-into`, the default output path configured for that provider is used instead.
+
+File downloads display a progress bar whenever the transfer size is known. Use `--no-progress` to disable the bar.
+On success the command prints the absolute path to the downloaded file.
 
 ```
 Usage:
-  oscar-cli service get-file SERVICE_NAME STORAGE_PROVIDER REMOTE_FILE LOCAL_FILE [flags]
+  oscar-cli service get-file SERVICE_NAME [STORAGE_PROVIDER] [REMOTE_PATH] [LOCAL_FILE] [flags]
 
 Aliases:
   get-file, gf
 
 Flags:
-  -c, --cluster string   set the cluster
-  -h, --help             help for get-file
+  -c, --cluster string        set the cluster
+  -h, --help                  help for get-file
+      --download-latest-into[=PATH]
+                              download the most recent file (optionally place it inside PATH when it is a directory, or use PATH as the exact filename)
+      --no-progress           disable progress bar output
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
@@ -340,16 +435,21 @@ Put a file in a service's storage provider.
 The STORAGE_PROVIDER argument follows the format STORAGE_PROVIDER_TYPE.STORAGE_PROVIDER_NAME,
 being the STORAGE_PROVIDER_TYPE one of the three supported storage providers (MinIO, S3 or Onedata)
 and the STORAGE_PROVIDER_NAME is the identifier for the provider set in the service's definition.
+If STORAGE_PROVIDER is not provided, the command defaults to `minio.default`.
+If REMOTE_FILE is not provided, the file is uploaded under the input path configured for that provider using the local file name.
+
+File uploads display a progress bar when the local file size is known. Use `--no-progress` to disable the bar.
 
 ```
 Usage:
-  oscar-cli service put-file SERVICE_NAME STORAGE_PROVIDER LOCAL_FILE REMOTE_FILE [flags]
+  oscar-cli service put-file SERVICE_NAME [STORAGE_PROVIDER] LOCAL_FILE [REMOTE_FILE] [flags]
 
 Aliases:
   put-file, pf
 
 Flags:
   -c, --cluster string   set the cluster
+      --no-progress      disable progress bar output
   -h, --help             help for put-file
 
 Global Flags:
@@ -378,6 +478,59 @@ Flags:
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
+
+### bucket
+
+Inspect and manage OSCAR buckets to review their contents.
+
+#### Subcommands
+
+##### list
+
+List the objects stored in a bucket.
+
+```
+Usage:
+  oscar-cli bucket list BUCKET_NAME [flags]
+
+Aliases:
+  list, ls
+
+Flags:
+  -c, --cluster string   set the cluster
+  -h, --help             help for list
+  -o, --output string    output format (table or json) (default "table")
+      --all              automatically retrieve every page of objects
+      --limit int        maximum number of objects per request (defaults to server settings)
+      --page string      continuation token returned by a previous call
+      --prefix string    filter objects by key prefix
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
+```
+
+### interactive
+
+Launch an interactive terminal interface to browse OSCAR clusters and services.
+
+```
+Usage:
+  oscar-cli interactive [flags]
+
+Aliases:
+  interactive, ui
+
+Flags:
+      --config string   set the location of the config file (YAML or JSON)
+  -h, --help            help for interactive
+```
+
+While the UI is running you can:
+
+- Press `q` to quit the application.
+- Press `r` to refresh services for the selected cluster.
+- Use the arrow keys or `Tab` to move between clusters and services. Selecting a service shows its details in the lower pane.
+- When viewing buckets, press `Enter` to focus the object list, use `o` to reload objects, `n`/`p` to page through results, and `a` to load every object available.
 
 ### version
 
