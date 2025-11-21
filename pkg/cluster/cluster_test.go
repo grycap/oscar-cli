@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grycap/oscar/v3/pkg/types"
 )
@@ -129,5 +131,130 @@ func TestGetClusterConfig(t *testing.T) {
 	}
 	if cfg.ServicesNamespace != "ns" {
 		t.Fatalf("expected services namespace ns, got %s", cfg.ServicesNamespace)
+	}
+}
+
+func TestGetClusterStatus(t *testing.T) {
+	expected := StatusInfo{
+		Cluster: ClusterStatus{
+			NodesCount: 2,
+			Metrics: ClusterMetrics{
+				CPU: CPUMetrics{
+					TotalFreeCores:     4,
+					MaxFreeOnNodeCores: 4,
+				},
+				Memory: MemoryMetrics{
+					TotalFreeBytes:     1024,
+					MaxFreeOnNodeBytes: 512,
+				},
+				GPU: GPUMetrics{
+					TotalGPU: 1,
+				},
+			},
+			Nodes: []NodeDetail{
+				{
+					Name:        "node-one",
+					GPU:         1,
+					IsInterlink: false,
+					Status:      "Ready",
+					CPU: NodeResource{
+						CapacityCores: 4,
+						UsageCores:    2,
+					},
+					Memory: NodeResource{
+						CapacityBytes: 2048,
+						UsageBytes:    1024,
+					},
+					Conditions: []NodeConditionSimple{
+						{Type: "Ready", Status: true},
+					},
+				},
+			},
+		},
+		Oscar: OscarStatus{
+			DeploymentName: "oscar-manager",
+			Ready:          true,
+			Deployment: OscarDeployment{
+				AvailableReplicas: 1,
+				ReadyReplicas:     1,
+				Replicas:          1,
+				CreationTimestamp: time.Unix(1700000000, 0).UTC(),
+				Strategy:          "RollingUpdate",
+				Labels: map[string]string{
+					"app": "oscar",
+				},
+			},
+			JobsCount: 5,
+			Pods: PodStates{
+				Total:  1,
+				States: map[string]int{"Running": 1},
+			},
+			OIDC: OIDCInfo{
+				Enabled: true,
+				Issuers: []string{"https://issuer"},
+				Groups:  []string{"admins"},
+			},
+		},
+		MinIO: MinioStatus{
+			BucketsCount: 3,
+			TotalObjects: 20,
+		},
+	}
+
+	const (
+		username = "user"
+		password = "pass"
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/system/status" {
+			http.NotFound(w, r)
+			return
+		}
+		gotUser, gotPass, ok := r.BasicAuth()
+		if !ok || gotUser != username || gotPass != password {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(expected); err != nil {
+			t.Fatalf("encoding status: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	c := &Cluster{
+		Endpoint:     server.URL,
+		AuthUser:     username,
+		AuthPassword: password,
+		SSLVerify:    true,
+	}
+
+	status, err := c.GetClusterStatus()
+	if err != nil {
+		t.Fatalf("GetClusterStatus returned error: %v", err)
+	}
+	if !reflect.DeepEqual(status, expected) {
+		t.Fatalf("expected status %#v, got %#v", expected, status)
+	}
+}
+
+func TestGetClusterStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	c := &Cluster{
+		Endpoint:  server.URL,
+		AuthUser:  "user",
+		SSLVerify: true,
+	}
+
+	_, err := c.GetClusterStatus()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if err.Error() != "boom\n" {
+		t.Fatalf("expected boom error, got %v", err)
 	}
 }
