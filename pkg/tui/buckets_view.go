@@ -235,7 +235,7 @@ func (s *uiState) searchBuckets(query string) bool {
 		if bucket == nil {
 			continue
 		}
-		haystack := strings.ToLower(bucket.Name + " " + bucket.Owner)
+		haystack := strings.ToLower(bucket.Name + " " + bucket.Owner + " " + bucket.Visibility)
 		if strings.Contains(haystack, query) {
 			row := idx + 1
 			s.queueUpdate(func() {

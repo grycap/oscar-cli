@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/grycap/oscar/v3/pkg/types"
 )
 
 func TestDefaultIfEmpty(t *testing.T) {
@@ -54,5 +55,28 @@ func TestBucketVisibilityColor(t *testing.T) {
 		if got := bucketVisibilityColor(tt.value); got != tt.color {
 			t.Fatalf("bucketVisibilityColor(%q) = %v, want %v", tt.value, got, tt.color)
 		}
+	}
+}
+
+func TestFormatServiceDefinition(t *testing.T) {
+	svc := &types.Service{
+		Name:     "demo",
+		Image:    "demo:v1",
+		Memory:   "128Mi",
+		Replicas: []types.Replica{{Type: "oscar", ServiceName: "demo"}},
+	}
+
+	rendered, err := formatServiceDefinition(svc)
+	if err != nil {
+		t.Fatalf("formatServiceDefinition returned error: %v", err)
+	}
+	if rendered == "" {
+		t.Fatal("expected formatted definition")
+	}
+	if !strings.Contains(rendered, "[yellow]name") {
+		t.Fatalf("expected colored key in output, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "[green]\"demo\"") {
+		t.Fatalf("expected colored value in output, got %q", rendered)
 	}
 }

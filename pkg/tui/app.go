@@ -39,10 +39,12 @@ func Run(ctx context.Context, conf *config.Config) error {
 		failedClusters:     make(map[string]string),
 		mode:               modeServices,
 		bucketObjects:      make(map[string]*bucketObjectState),
+		serviceDefinitions: make(map[string]string),
 	}
 
 	state.statusView.SetBorder(false)
 	state.detailsView.SetBorder(true)
+	state.detailsView.SetScrollable(true)
 	state.detailsView.SetTitle("Details")
 	state.detailsView.SetText("Select a cluster to view details")
 	state.bucketObjectsTable.SetBorder(true)
@@ -217,6 +219,9 @@ func Run(ctx context.Context, conf *config.Config) error {
 				state.requestDeletion()
 				return nil
 			}
+		case 'v', 'V':
+			state.focusDetailsPane()
+			return nil
 		case 'l', 'L':
 			if app.GetFocus() == state.serviceTable {
 				state.showServiceLogs()
@@ -378,6 +383,12 @@ func (s *uiState) modeIsBuckets() bool {
 	mode := s.mode
 	s.mutex.Unlock()
 	return mode == modeBuckets
+}
+
+func (s *uiState) focusDetailsPane() {
+	s.queueUpdate(func() {
+		s.app.SetFocus(s.detailsView)
+	})
 }
 
 func (s *uiState) setStatus(message string) {

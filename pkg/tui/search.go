@@ -29,6 +29,12 @@ func (s *uiState) initiateSearch(ctx context.Context) {
 		} else {
 			target = searchTargetServices
 		}
+	case s.detailsView:
+		target = searchTargetDetails
+	}
+
+	if target == searchTargetNone && len(s.clusterNames) > 0 {
+		target = searchTargetClusters
 	}
 
 	if target == searchTargetNone {
@@ -53,6 +59,13 @@ func (s *uiState) initiateSearch(ctx context.Context) {
 		if len(s.bucketInfos) == 0 {
 			s.mutex.Unlock()
 			s.setStatus("[yellow]No buckets to search")
+			return
+		}
+	case searchTargetDetails:
+		text := s.detailsView.GetText(true)
+		if strings.TrimSpace(text) == "" {
+			s.mutex.Unlock()
+			s.setStatus("[yellow]Nothing to search in details")
 			return
 		}
 	}
@@ -81,6 +94,8 @@ func (s *uiState) showSearch(target searchTarget) {
 		label = "Services: "
 	case searchTargetBuckets:
 		label = "Buckets: "
+	case searchTargetDetails:
+		label = "Details: "
 	}
 
 	input := tview.NewInputField().
@@ -153,6 +168,8 @@ func (s *uiState) handleSearchInput(query string) {
 		found = s.searchServices(lower)
 	case searchTargetBuckets:
 		found = s.searchBuckets(lower)
+	case searchTargetDetails:
+		found = s.searchDetails(lower)
 	}
 	if !found {
 		s.setStatus("[yellow]No matches found")
@@ -164,7 +181,16 @@ func (s *uiState) searchClusters(query string) bool {
 	names := append([]string(nil), s.clusterNames...)
 	s.mutex.Unlock()
 	for idx, name := range names {
-		if strings.Contains(strings.ToLower(name), query) {
+		haystack := name
+		if cfg := s.conf.Oscar[name]; cfg != nil {
+			haystack = strings.Join([]string{
+				name,
+				cfg.Endpoint,
+				cfg.AuthUser,
+				cfg.OIDCAccountName,
+			}, " ")
+		}
+		if containsQuery(haystack, query) {
 			s.queueUpdate(func() {
 				s.clusterList.SetCurrentItem(idx)
 			})
@@ -172,4 +198,23 @@ func (s *uiState) searchClusters(query string) bool {
 		}
 	}
 	return false
+}
+
+func (s *uiState) searchDetails(query string) bool {
+	text := s.detailsView.GetText(true)
+	lines := strings.Split(text, "\n")
+	for idx, line := range lines {
+		if containsQuery(line, query) {
+			lineNum := idx
+			s.queueUpdate(func() {
+				s.detailsView.ScrollTo(lineNum, 0)
+			})
+			return true
+		}
+	}
+	return false
+}
+
+func containsQuery(haystack, query string) bool {
+	return strings.Contains(strings.ToLower(haystack), query)
 }

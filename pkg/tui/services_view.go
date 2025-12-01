@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -253,9 +255,7 @@ func (s *uiState) handleServiceSelection(row int, immediate bool) {
 	}
 
 	if immediate {
-		s.queueUpdate(func() {
-			s.detailsView.SetText(formatServiceDetails(&svc))
-		})
+		s.showServiceDefinition(s.currentCluster, svc.Name)
 		return
 	}
 
@@ -267,9 +267,7 @@ func (s *uiState) handleServiceSelection(row int, immediate bool) {
 		}
 		s.detailTimer = nil
 		s.mutex.Unlock()
-		s.queueUpdate(func() {
-			s.detailsView.SetText(formatServiceDetails(&svc))
-		})
+		s.showServiceDefinition(s.currentCluster, svc.Name)
 	})
 
 	s.mutex.Lock()
@@ -423,7 +421,8 @@ func (s *uiState) searchServices(query string) bool {
 		if svc == nil {
 			continue
 		}
-		if strings.Contains(strings.ToLower(svc.Name), query) {
+		fields := []string{svc.Name, svc.Image, svc.CPU, svc.Memory}
+		if containsQuery(strings.Join(fields, " "), query) {
 			row := idx + 1
 			s.queueUpdate(func() {
 				s.serviceTable.Select(row, 0)
@@ -433,4 +432,146 @@ func (s *uiState) searchServices(query string) bool {
 		}
 	}
 	return false
+}
+
+func (s *uiState) showServiceDefinition(clusterName, serviceName string) {
+	clusterName = strings.TrimSpace(clusterName)
+	serviceName = strings.TrimSpace(serviceName)
+	if clusterName == "" || serviceName == "" {
+		s.setServiceDetailsText("Select a service to inspect details")
+		return
+	}
+
+	key := makeServiceDefinitionKey(clusterName, serviceName)
+	s.mutex.Lock()
+	cached := s.serviceDefinitions[key]
+	s.serviceDefinitionSeq++
+	seq := s.serviceDefinitionSeq
+	s.currentServiceDefinition = key
+	s.mutex.Unlock()
+
+	if cached != "" {
+		s.queueUpdate(func() {
+			s.detailsView.SetText(cached)
+		})
+		return
+	}
+
+	loadingText := fmt.Sprintf("Loading definition for %s…", serviceName)
+	s.queueUpdate(func() {
+		s.detailsView.SetText(loadingText)
+	})
+	s.setStatus(fmt.Sprintf("[yellow]Loading definition for %q…", serviceName))
+
+	go s.fetchServiceDefinition(clusterName, serviceName, key, seq)
+}
+
+func (s *uiState) fetchServiceDefinition(clusterName, serviceName, key string, seq int) {
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+
+	def, err := service.GetService(clusterCfg, serviceName)
+	if err != nil {
+		s.setStatus(fmt.Sprintf("[red]Failed to load definition for %q: %v", serviceName, err))
+		return
+	}
+
+	rendered, err := formatServiceDefinition(def)
+	if err != nil {
+		s.setStatus(fmt.Sprintf("[red]Failed to format definition for %q: %v", serviceName, err))
+		return
+	}
+
+	s.mutex.Lock()
+	if seq != s.serviceDefinitionSeq {
+		s.mutex.Unlock()
+		return
+	}
+	s.serviceDefinitions[key] = rendered
+	active := s.currentServiceDefinition
+	s.mutex.Unlock()
+
+	if active == key {
+		s.queueUpdate(func() {
+			s.detailsView.SetText(rendered)
+		})
+		s.setStatus(fmt.Sprintf("[green]Loaded definition for %q", serviceName))
+	}
+}
+
+func makeServiceDefinitionKey(clusterName, serviceName string) string {
+	return fmt.Sprintf("%s\x00%s", clusterName, serviceName)
+}
+
+func formatServiceDefinition(svc *types.Service) (string, error) {
+	if svc == nil {
+		return "", nil
+	}
+
+	data, err := json.Marshal(svc)
+	if err != nil {
+		return "", err
+	}
+	var val interface{}
+	if err := json.Unmarshal(data, &val); err != nil {
+		return "", err
+	}
+	builder := &strings.Builder{}
+	colorizeJSON(builder, val, 0)
+	return builder.String(), nil
+}
+
+func colorizeJSON(builder *strings.Builder, val interface{}, level int) {
+	indent := strings.Repeat("  ", level)
+	switch v := val.(type) {
+	case map[string]interface{}:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		builder.WriteString("{\n")
+		for i, k := range keys {
+			builder.WriteString(indent + "  ")
+			builder.WriteString("[yellow]")
+			builder.WriteString(tview.Escape(k))
+			builder.WriteString("[-]: ")
+			colorizeJSON(builder, v[k], level+1)
+			if i < len(keys)-1 {
+				builder.WriteString(",")
+			}
+			builder.WriteString("\n")
+		}
+		builder.WriteString(indent + "}")
+	case []interface{}:
+		builder.WriteString("[\n")
+		for i, item := range v {
+			builder.WriteString(indent + "  ")
+			colorizeJSON(builder, item, level+1)
+			if i < len(v)-1 {
+				builder.WriteString(",")
+			}
+			builder.WriteString("\n")
+		}
+		builder.WriteString(indent + "]")
+	case string:
+		builder.WriteString("[green]\"")
+		builder.WriteString(tview.Escape(v))
+		builder.WriteString("\"[-]")
+	case float64, int, int64, uint64, float32:
+		builder.WriteString("[cyan]")
+		builder.WriteString(fmt.Sprintf("%v", v))
+		builder.WriteString("[-]")
+	case bool:
+		builder.WriteString("[magenta]")
+		builder.WriteString(fmt.Sprintf("%v", v))
+		builder.WriteString("[-]")
+	case nil:
+		builder.WriteString("[gray]null[-]")
+	default:
+		builder.WriteString(tview.Escape(fmt.Sprintf("%v", v)))
+	}
 }

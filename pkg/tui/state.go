@@ -15,6 +15,7 @@ import (
 const legendText = `[yellow]Navigation[-]
   ↑/↓  Move selection
   ←/→ or Tab  Switch pane
+  v  Focus details panel
 
 [yellow]Actions[-]
   r  Refresh current view
@@ -31,7 +32,7 @@ const legendText = `[yellow]Navigation[-]
   q  Quit
   ?  Toggle this help`
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type panelMode int
 
@@ -53,6 +54,7 @@ const (
 	searchTargetClusters
 	searchTargetServices
 	searchTargetBuckets
+	searchTargetDetails
 )
 
 type uiState struct {
@@ -98,6 +100,9 @@ type uiState struct {
 	searchInput              *tview.InputField
 	searchTarget             searchTarget
 	originalFocus            tview.Primitive
+	serviceDefinitions       map[string]string
+	serviceDefinitionSeq     int
+	currentServiceDefinition string
 	autoRefreshCancel        context.CancelFunc
 	autoRefreshTicker        *time.Ticker
 	autoRefreshPeriod        time.Duration
