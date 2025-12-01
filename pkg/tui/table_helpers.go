@@ -11,6 +11,10 @@ func setServiceTableHeader(table *tview.Table) {
 	setTableHeader(table, serviceHeaders)
 }
 
+func setLogTableHeader(table *tview.Table) {
+	setTableHeader(table, logHeaders)
+}
+
 func setBucketTableHeader(table *tview.Table) {
 	setTableHeader(table, bucketHeaders)
 }

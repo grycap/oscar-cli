@@ -21,7 +21,7 @@ const legendText = `[yellow]Navigation[-]
   r  Refresh current view
   d  Delete selected item
   i  Show cluster info
-  l  Show service logs
+  l  Open logs panel
   w  Configure auto refresh
   b  Switch to buckets view
   s  Switch to services view
@@ -32,19 +32,21 @@ const legendText = `[yellow]Navigation[-]
   q  Quit
   ?  Toggle this help`
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Service logs · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type panelMode int
 
 const (
 	modeServices panelMode = iota
 	modeBuckets
+	modeLogs
 )
 
 var (
 	serviceHeaders      = []string{"Name", "Image", "CPU", "Memory"}
 	bucketHeaders       = []string{"Name", "Visibility", "Owner"}
 	bucketObjectHeaders = []string{"Name", "Size (B)", "Last Modified"}
+	logHeaders          = []string{"Job", "Status", "Started", "Finished"}
 )
 
 type searchTarget int
@@ -53,6 +55,7 @@ const (
 	searchTargetNone searchTarget = iota
 	searchTargetClusters
 	searchTargetServices
+	searchTargetLogs
 	searchTargetBuckets
 	searchTargetDetails
 )
@@ -111,6 +114,14 @@ type uiState struct {
 	autoRefreshInput         *tview.InputField
 	autoRefreshFocus         tview.Primitive
 	servicePanelVisited      bool
+	logEntries               []*logEntry
+	logDetails               map[string]string
+	logSeq                   int
+	logDetailSeq             int
+	currentLogsKey           string
+	currentLogJobKey         string
+	currentLogService        string
+	currentLogCluster        string
 }
 
 type bucketObjectState struct {

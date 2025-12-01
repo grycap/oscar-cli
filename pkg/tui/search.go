@@ -26,6 +26,8 @@ func (s *uiState) initiateSearch(ctx context.Context) {
 	case s.serviceTable:
 		if mode == modeBuckets {
 			target = searchTargetBuckets
+		} else if mode == modeLogs {
+			target = searchTargetLogs
 		} else {
 			target = searchTargetServices
 		}
@@ -53,6 +55,12 @@ func (s *uiState) initiateSearch(ctx context.Context) {
 		if len(s.currentServices) == 0 {
 			s.mutex.Unlock()
 			s.setStatus("[yellow]No services to search")
+			return
+		}
+	case searchTargetLogs:
+		if len(s.logEntries) == 0 {
+			s.mutex.Unlock()
+			s.setStatus("[yellow]No logs to search")
 			return
 		}
 	case searchTargetBuckets:
@@ -166,6 +174,8 @@ func (s *uiState) handleSearchInput(query string) {
 		found = s.searchClusters(lower)
 	case searchTargetServices:
 		found = s.searchServices(lower)
+	case searchTargetLogs:
+		found = s.searchLogs(lower)
 	case searchTargetBuckets:
 		found = s.searchBuckets(lower)
 	case searchTargetDetails:
@@ -193,6 +203,34 @@ func (s *uiState) searchClusters(query string) bool {
 		if containsQuery(haystack, query) {
 			s.queueUpdate(func() {
 				s.clusterList.SetCurrentItem(idx)
+			})
+			return true
+		}
+	}
+	return false
+}
+
+func (s *uiState) searchLogs(query string) bool {
+	s.mutex.Lock()
+	entries := append([]*logEntry(nil), s.logEntries...)
+	s.mutex.Unlock()
+	for idx, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		infoParts := []string{entry.Name}
+		if entry.Info != nil {
+			infoParts = append(infoParts,
+				entry.Info.Status,
+				formatLogTime(jobStartTime(entry.Info)),
+				formatLogTime(jobFinishTime(entry.Info)),
+			)
+		}
+		if containsQuery(strings.Join(infoParts, " "), query) {
+			row := idx + 1
+			s.queueUpdate(func() {
+				s.serviceTable.Select(row, 0)
+				s.handleLogSelection(row, true)
 			})
 			return true
 		}

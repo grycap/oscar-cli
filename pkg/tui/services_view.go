@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/rivo/tview"
 
-	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar-cli/pkg/service"
 	"github.com/grycap/oscar/v3/pkg/types"
 )
@@ -62,6 +60,11 @@ func (s *uiState) switchToServices(ctx context.Context) {
 		return
 	}
 	s.mode = modeServices
+	s.currentLogsKey = ""
+	s.currentLogJobKey = ""
+	s.currentLogService = ""
+	s.currentLogCluster = ""
+	s.logEntries = nil
 	if s.bucketCancel != nil {
 		s.bucketCancel()
 		s.bucketCancel = nil
@@ -277,82 +280,6 @@ func (s *uiState) handleServiceSelection(row int, immediate bool) {
 		timer.Stop()
 	}
 	s.mutex.Unlock()
-}
-
-func (s *uiState) showServiceLogs() {
-	s.mutex.Lock()
-	if s.confirmVisible || s.legendVisible {
-		s.mutex.Unlock()
-		return
-	}
-	if s.mode != modeServices {
-		s.mutex.Unlock()
-		s.setStatus("[red]Logs are only available in services view")
-		return
-	}
-	row, _ := s.serviceTable.GetSelection()
-	if row <= 0 || row-1 >= len(s.currentServices) {
-		s.mutex.Unlock()
-		s.setStatus("[red]Select a service to view logs")
-		return
-	}
-	svcPtr := s.currentServices[row-1]
-	clusterName := s.currentCluster
-	s.mutex.Unlock()
-
-	if svcPtr == nil {
-		s.setStatus("[red]Select a service to view logs")
-		return
-	}
-	serviceName := strings.TrimSpace(svcPtr.Name)
-	if serviceName == "" {
-		s.setStatus("[red]Select a service to view logs")
-		return
-	}
-
-	clusterName = strings.TrimSpace(clusterName)
-	if clusterName == "" {
-		s.setStatus("[red]Select a cluster to view logs")
-		return
-	}
-
-	clusterCfg := s.conf.Oscar[clusterName]
-	if clusterCfg == nil {
-		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
-		return
-	}
-
-	s.setStatus(fmt.Sprintf("[yellow]Loading logs for %q…", serviceName))
-	s.queueUpdate(func() {
-		s.detailsView.SetText(fmt.Sprintf("Loading logs for %s…", serviceName))
-	})
-
-	go func(cName, svcName string, cfg *cluster.Cluster) {
-		jobName, err := service.FindLatestJobName(cfg, svcName)
-		if err != nil {
-			if errors.Is(err, service.ErrNoLogsFound) {
-				s.setStatus(fmt.Sprintf("[yellow]No logs found for %q", svcName))
-				s.queueUpdate(func() {
-					s.detailsView.SetText(formatServiceLogs(svcName, "", ""))
-				})
-				return
-			}
-			s.setStatus(fmt.Sprintf("[red]Failed to locate logs for %q: %v", svcName, err))
-			return
-		}
-
-		logText, err := service.GetLogs(cfg, svcName, jobName, false)
-		if err != nil {
-			s.setStatus(fmt.Sprintf("[red]Failed to download logs for %q: %v", svcName, err))
-			return
-		}
-
-		s.setStatus(fmt.Sprintf("[green]Loaded logs for %q", svcName))
-		rendered := formatServiceLogs(svcName, jobName, logText)
-		s.queueUpdate(func() {
-			s.detailsView.SetText(rendered)
-		})
-	}(clusterName, serviceName, clusterCfg)
 }
 
 func (s *uiState) performDeletion(clusterName, svcName string) {
