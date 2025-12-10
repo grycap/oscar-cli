@@ -112,7 +112,7 @@ func bucketGetPrintTable(cmd *cobra.Command, bucketName string, objects []*stora
 func makeBucketGetCmd() *cobra.Command {
 	bucketGetCmd := &cobra.Command{
 		Use:     "get BUCKET_NAME",
-		Short:   "Get a bucket",
+		Short:   "Get the contents of a bucket",
 		Long:    "Retrieve information about a specific OSCAR bucket using the cluster storage API.",
 		Args:    cobra.ExactArgs(1),
 		Aliases: []string{"g"},
