@@ -148,6 +148,7 @@ Aliases:
 
 Flags:
   -c, --cluster string   set the cluster
+  -o, --output string    output format (yaml or json) (default "yaml")
   -h, --help             help for status
 
 Global Flags:
