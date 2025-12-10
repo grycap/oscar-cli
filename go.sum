@@ -74,6 +74,8 @@ github.com/grycap/cdmi-client-go v0.1.1 h1:kHIrrLhvaCD0VyzEa5HOg7d/VgRE11yh9Ztdy
 github.com/grycap/cdmi-client-go v0.1.1/go.mod h1:ZqWeQS3YBJVXxg3HOIkAu1MLNJ4+7s848CyIPMFT5Gc=
 github.com/grycap/oscar/v3 v3.3.0 h1:+zDkUu6IryJ7Xq2QGNDkDCvhMrVhpjAU4cmiW2or+wc=
 github.com/grycap/oscar/v3 v3.3.0/go.mod h1:EN8kr1DLZc99llMJvXk4vnfVKQzEMLrnWdqaEKdg8YI=
+github.com/grycap/oscar/v3 v3.6.5 h1:iQDKY7Vqv/iWGLzyFoxONYQsHA8WunDhyOXP2JKGUis=
+github.com/grycap/oscar/v3 v3.6.5/go.mod h1:Js7D2jFlI5oCYw0QBFp1i3miRYtFLHF6HEALDbSoAis=
 github.com/inconshreveable/mousetrap v1.0.0/go.mod h1:PxqpIevigyE2G7u3NXJIT2ANytuPF1OarO4DADm73n8=
 github.com/inconshreveable/mousetrap v1.0.1 h1:U3uMjPSQEBMNp1lFxmllqCPM6P5u/Xq7Pgzkat/bFNc=
 github.com/inconshreveable/mousetrap v1.0.1/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
@@ -197,6 +199,8 @@ golang.org/x/net v0.25.0 h1:d/OCCoBEUq33pjydKrGQhw7IlUPI2Oylr+8qLx49kac=
 golang.org/x/net v0.25.0/go.mod h1:JkAGAh7GEvH74S6FOH42FLoXpXbE/aqXSrIQjXgsiwM=
 golang.org/x/oauth2 v0.10.0 h1:zHCpF2Khkwy4mMB4bv0U37YtJdTGW8jI0glAApi0Kh8=
 golang.org/x/oauth2 v0.10.0/go.mod h1:kTpgurOux7LqtuxjuyZa4Gj2gdezIt/jQtGnNFfypQI=
+golang.org/x/oauth2 v0.27.0 h1:da9Vo7/tDv5RH/7nZDz1eMGS/q1Vv1N/7FCrBhI9I3M=
+golang.org/x/oauth2 v0.27.0/go.mod h1:onh5ek6nERTohokkhCD/y2cV4Do3fxFHFuAejCkRWT8=
 golang.org/x/sync v0.0.0-20190423024810-112230192c58/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
