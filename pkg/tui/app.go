@@ -244,7 +244,6 @@ func Run(ctx context.Context, conf *config.Config) error {
 		}
 		return event
 	})
-
 	go func() {
 		<-ctx.Done()
 		state.stopAutoRefresh()
