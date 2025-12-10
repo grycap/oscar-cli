@@ -36,6 +36,7 @@ import (
 
 const infoPath = "/system/info"
 const configPath = "/system/config"
+const statusPath = "/system/status"
 const _DEFAULT_TIMEOUT = 20
 
 var (
@@ -240,6 +241,41 @@ func (cluster *Cluster) GetClusterConfig() (cfg types.Config, err error) {
 	json.NewDecoder(res.Body).Decode(&cfg)
 
 	return cfg, nil
+}
+
+// GetClusterStatus returns the status of an OSCAR cluster
+func (cluster *Cluster) GetClusterStatus() (status StatusInfo, err error) {
+	getStatusURL, err := url.Parse(cluster.Endpoint)
+	if err != nil {
+		return status, ErrParsingEndpoint
+	}
+	getStatusURL.Path = path.Join(getStatusURL.Path, statusPath)
+
+	req, err := http.NewRequest(http.MethodGet, getStatusURL.String(), nil)
+	if err != nil {
+		return status, ErrMakingRequest
+	}
+
+	client, err := cluster.GetClientSafe()
+	if err != nil {
+		return status, err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return status, ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := CheckStatusCode(res); err != nil {
+		return status, err
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&status); err != nil {
+		return status, fmt.Errorf("unable to parse cluster status response: %w", err)
+	}
+
+	return status, nil
 }
 
 // CheckStatusCode checks if a cluster response is valid and returns an appropriate error if not
