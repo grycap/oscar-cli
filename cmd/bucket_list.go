@@ -84,9 +84,9 @@ func bucketListPrintTable(cmd *cobra.Command, objects []*storage.BucketInfo) {
 
 func makeBucketListCmd() *cobra.Command {
 	bucketListCmd := &cobra.Command{
-		Use:     "list BUCKET_NAME",
-		Short:   "List the contents of a bucket",
-		Long:    "List the objects stored in an OSCAR bucket using the cluster storage API.",
+		Use:     "list",
+		Short:   "List the buckets of a cluster",
+		Long:    "List the buckets of a OSCAR cluster using the cluster storage API.",
 		Args:    cobra.ExactArgs(0),
 		Aliases: []string{"ls"},
 		RunE:    bucketListFunc,
