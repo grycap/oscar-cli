@@ -42,6 +42,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 		mode:               modeServices,
 		bucketObjects:      make(map[string]*bucketObjectState),
 		serviceDefinitions: make(map[string]string),
+		logDetails:         make(map[string]string),
 	}
 
 	state.statusView.SetBorder(false)
@@ -177,6 +178,20 @@ func Run(ctx context.Context, conf *config.Config) error {
 				app.SetFocus(state.serviceTable)
 				return nil
 			}
+		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			if app.GetFocus() == state.detailsView {
+				app.SetFocus(state.serviceTable)
+				return nil
+			}
+			if app.GetFocus() == state.serviceTable {
+				state.switchToServices(ctx)
+				return nil
+			}
+		case tcell.KeyEnter:
+			if app.GetFocus() == state.serviceTable {
+				state.switchToLogs(ctx)
+				return nil
+			}
 		}
 
 		switch event.Rune() {
@@ -217,16 +232,22 @@ func Run(ctx context.Context, conf *config.Config) error {
 				return nil
 			}
 		case 'd', 'D':
-			if app.GetFocus() == state.serviceTable {
+			if app.GetFocus() == state.serviceTable && state.modeIsServices() {
 				state.requestDeletion()
 				return nil
 			}
 		case 'v', 'V':
-			state.focusDetailsPane()
+			state.queueUpdate(func() {
+				if state.app.GetFocus() != state.detailsView {
+					state.app.SetFocus(state.detailsView)
+				} else {
+					state.app.SetFocus(state.serviceTable)
+				}
+			})
 			return nil
 		case 'l', 'L':
 			if app.GetFocus() == state.serviceTable {
-				state.showServiceLogs()
+				state.switchToLogs(ctx)
 				return nil
 			}
 		case '?':
@@ -303,6 +324,14 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 	}
 	s.lastSelection = ""
 	s.currentBucketObjectsKey = ""
+	s.logEntries = nil
+	s.currentLogsKey = ""
+	s.currentLogJobKey = ""
+	s.currentLogService = ""
+	s.currentLogCluster = ""
+	if s.mode == modeLogs {
+		s.mode = modeServices
+	}
 	s.currentCluster = name
 	mode := s.mode
 	errMsg, blocked := s.failedClusters[name]
@@ -355,6 +384,8 @@ func (s *uiState) refreshCurrent(ctx context.Context) {
 	}
 	if mode == modeBuckets {
 		go s.loadBuckets(ctx, name, true)
+	} else if mode == modeLogs {
+		go s.loadLogs(ctx, name, s.currentLogService, true)
 	} else {
 		go s.loadServices(ctx, name, true)
 	}
@@ -388,6 +419,13 @@ func (s *uiState) modeIsBuckets() bool {
 	mode := s.mode
 	s.mutex.Unlock()
 	return mode == modeBuckets
+}
+
+func (s *uiState) modeIsLogs() bool {
+	s.mutex.Lock()
+	mode := s.mode
+	s.mutex.Unlock()
+	return mode == modeLogs
 }
 
 func (s *uiState) focusDetailsPane() {
@@ -431,6 +469,10 @@ func (s *uiState) handleSelection(row int, immediate bool) {
 	s.mutex.Unlock()
 	if mode == modeBuckets {
 		s.handleBucketSelection(row, immediate)
+		return
+	}
+	if mode == modeLogs {
+		s.handleLogSelection(row, immediate)
 		return
 	}
 	s.handleServiceSelection(row, immediate)
