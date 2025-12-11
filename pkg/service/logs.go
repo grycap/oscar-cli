@@ -33,16 +33,10 @@ import (
 
 const logsPath = "/system/logs"
 
-type JobsResponse struct {
-	Jobs         map[string]*types.JobInfo `json:"jobs"`
-	NextPage     string                    `json:"next_page,omitempty"`
-	RemainingJob *int64                    `json:"remaining_jobs,omitempty"`
-}
-
 var ErrNoLogsFound = errors.New("service has no logs")
 
 // ListLogs returns a map with all the available logs from the given service
-func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse, err error) {
+func ListLogs(c *cluster.Cluster, name string, page string) (logMap types.JobsResponse, err error) {
 	listLogsURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return logMap, cluster.ErrParsingEndpoint
@@ -76,7 +70,7 @@ func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse
 		return logMap, err
 	}
 	jobs := map[string]*types.JobInfo{}
-	jobsResponse := JobsResponse{}
+	jobsResponse := types.JobsResponse{}
 	// Try to decode the response body into the jobsResponse
 	err = json.NewDecoder(bytes.NewReader(body)).Decode(&jobsResponse)
 	if err != nil {
@@ -91,7 +85,7 @@ func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse
 		if _, ok := jobs["jobs"]; ok {
 			return jobsResponse, err
 		} else {
-			jobsResponse = JobsResponse{Jobs: jobs, NextPage: "", RemainingJob: nil}
+			jobsResponse = types.JobsResponse{Jobs: jobs, NextPage: "", RemainingJob: nil}
 			return jobsResponse, err
 		}
 

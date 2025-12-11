@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -176,6 +178,20 @@ func Run(ctx context.Context, conf *config.Config) error {
 				app.SetFocus(state.serviceTable)
 				return nil
 			}
+		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			if app.GetFocus() == state.detailsView {
+				app.SetFocus(state.serviceTable)
+				return nil
+			}
+			if app.GetFocus() == state.serviceTable {
+				state.switchToServices(ctx)
+				return nil
+			}
+		case tcell.KeyEnter:
+			if app.GetFocus() == state.serviceTable {
+				state.switchToLogs(ctx)
+				return nil
+			}
 		}
 
 		switch event.Rune() {
@@ -221,7 +237,13 @@ func Run(ctx context.Context, conf *config.Config) error {
 				return nil
 			}
 		case 'v', 'V':
-			state.focusDetailsPane()
+			state.queueUpdate(func() {
+				if state.app.GetFocus() != state.detailsView {
+					state.app.SetFocus(state.detailsView)
+				} else {
+					state.app.SetFocus(state.serviceTable)
+				}
+			})
 			return nil
 		case 'l', 'L':
 			if app.GetFocus() == state.serviceTable {
@@ -233,6 +255,9 @@ func Run(ctx context.Context, conf *config.Config) error {
 			return nil
 		case 'i', 'I':
 			state.showClusterInfo()
+			return nil
+		case 't', 'T':
+			state.showClusterStatus()
 			return nil
 		case '/':
 			state.initiateSearch(ctx)
@@ -514,4 +539,186 @@ func (s *uiState) showClusterInfo() {
 			s.detailsView.SetText(text)
 		})
 	}(displayName, clusterCfg)
+}
+
+func (s *uiState) showClusterStatus() {
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	trimmedName := strings.TrimSpace(clusterName)
+	if trimmedName == "" {
+		s.setStatus("[red]Select a cluster to view its status")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil && trimmedName != clusterName {
+		clusterCfg = s.conf.Oscar[trimmedName]
+	}
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", trimmedName))
+		return
+	}
+
+	displayName := trimmedName
+	if displayName == "" {
+		displayName = clusterName
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading status for cluster %q…", displayName))
+
+	go func(name string, cfg *cluster.Cluster) {
+		status, err := cfg.GetClusterStatus()
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load status for %q: %v", name, err))
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Cluster status loaded for %q", name))
+		text := formatClusterStatus(name, status)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(displayName, clusterCfg)
+}
+
+func formatClusterStatus(clusterName string, status cluster.StatusInfo) string {
+	builder := &strings.Builder{}
+	if clusterName != "" {
+		fmt.Fprintf(builder, "[yellow]Cluster:[-] %s\n", clusterName)
+	}
+	if count := status.Cluster.NodesCount; count > 0 {
+		fmt.Fprintf(builder, "[yellow]Nodes:[-] %d total\n", count)
+	}
+
+	clusterMetrics := status.Cluster.Metrics
+	if clusterMetrics.CPU.TotalFreeCores > 0 || clusterMetrics.CPU.MaxFreeOnNodeCores > 0 {
+		fmt.Fprintf(builder, "[yellow]CPU:[-] free %d cores (max node %d)\n",
+			clusterMetrics.CPU.TotalFreeCores, clusterMetrics.CPU.MaxFreeOnNodeCores)
+	}
+	if clusterMetrics.Memory.TotalFreeBytes > 0 || clusterMetrics.Memory.MaxFreeOnNodeBytes > 0 {
+		fmt.Fprintf(builder, "[yellow]Memory:[-] free %s (max node %s)\n",
+			humanizeBytes(clusterMetrics.Memory.TotalFreeBytes),
+			humanizeBytes(clusterMetrics.Memory.MaxFreeOnNodeBytes))
+	}
+	if clusterMetrics.GPU.TotalGPU > 0 {
+		fmt.Fprintf(builder, "[yellow]GPU:[-] %d available\n", clusterMetrics.GPU.TotalGPU)
+	}
+
+	if len(status.Cluster.Nodes) > 0 {
+		builder.WriteString("[yellow]Node details:[-]\n")
+		for _, node := range status.Cluster.Nodes {
+			name := defaultIfEmpty(node.Name, "node")
+			statusText := defaultIfEmpty(node.Status, "unknown")
+			role := ""
+			if node.IsInterlink {
+				role = " (interlink)"
+			}
+			fmt.Fprintf(builder, "  - %s (%s)%s\n", name, statusText, role)
+			if node.CPU.CapacityCores > 0 || node.CPU.UsageCores > 0 {
+				fmt.Fprintf(builder, "      CPU: %d/%d cores used\n", node.CPU.UsageCores, node.CPU.CapacityCores)
+			}
+			if node.Memory.CapacityBytes > 0 || node.Memory.UsageBytes > 0 {
+				fmt.Fprintf(builder, "      Memory: %s/%s\n",
+					humanizeBytes(node.Memory.UsageBytes), humanizeBytes(node.Memory.CapacityBytes))
+			}
+			if node.GPU > 0 {
+				fmt.Fprintf(builder, "      GPU: %d\n", node.GPU)
+			}
+			if len(node.Conditions) > 0 {
+				conditions := make([]string, 0, len(node.Conditions))
+				for _, cond := range node.Conditions {
+					colorTag := "[green]"
+					if cond.Status {
+						colorTag = "[red]"
+					}
+					if strings.EqualFold(cond.Type, "Ready") && cond.Status {
+						colorTag = "[green]"
+					}
+					conditions = append(conditions, fmt.Sprintf("%s%s=%t[-]", colorTag, cond.Type, cond.Status))
+				}
+				fmt.Fprintf(builder, "      Conditions: %s\n", strings.Join(conditions, ", "))
+			}
+		}
+	}
+
+	oscar := status.Oscar
+	if oscar.DeploymentName != "" || oscar.JobsCount > 0 || oscar.Ready {
+		state := "not ready"
+		if oscar.Ready {
+			state = "ready"
+		}
+		fmt.Fprintf(builder, "[yellow]OSCAR:[-] %s (%s)\n", defaultIfEmpty(oscar.DeploymentName, "manager"), state)
+		deployment := oscar.Deployment
+		if deployment.Replicas > 0 || deployment.ReadyReplicas > 0 || deployment.AvailableReplicas > 0 {
+			fmt.Fprintf(builder, "    Replicas: %d total / %d ready / %d available\n",
+				deployment.Replicas, deployment.ReadyReplicas, deployment.AvailableReplicas)
+		}
+		if !deployment.CreationTimestamp.IsZero() {
+			fmt.Fprintf(builder, "    Created: %s\n", deployment.CreationTimestamp.UTC().Format(time.RFC3339))
+		}
+		if deployment.Strategy != "" {
+			fmt.Fprintf(builder, "    Strategy: %s\n", deployment.Strategy)
+		}
+		if oscar.JobsCount > 0 {
+			fmt.Fprintf(builder, "    Jobs: %d total\n", oscar.JobsCount)
+		}
+		if oscar.Pods.Total > 0 {
+			fmt.Fprintf(builder, "    Pods: %d total", oscar.Pods.Total)
+			if len(oscar.Pods.States) > 0 {
+				stateKeys := make([]string, 0, len(oscar.Pods.States))
+				for key := range oscar.Pods.States {
+					stateKeys = append(stateKeys, key)
+				}
+				sort.Strings(stateKeys)
+				parts := make([]string, 0, len(stateKeys))
+				for _, key := range stateKeys {
+					parts = append(parts, fmt.Sprintf("%s=%d", key, oscar.Pods.States[key]))
+				}
+				fmt.Fprintf(builder, " (%s)", strings.Join(parts, ", "))
+			}
+			builder.WriteByte('\n')
+		}
+		if oscar.OIDC.Enabled || len(oscar.OIDC.Issuers) > 0 || len(oscar.OIDC.Groups) > 0 {
+			fmt.Fprintf(builder, "    OIDC: enabled=%t\n", oscar.OIDC.Enabled)
+			if len(oscar.OIDC.Issuers) > 0 {
+				fmt.Fprintf(builder, "          issuers: %s\n", strings.Join(oscar.OIDC.Issuers, ", "))
+			}
+			if len(oscar.OIDC.Groups) > 0 {
+				fmt.Fprintf(builder, "          groups: %s\n", strings.Join(oscar.OIDC.Groups, ", "))
+			}
+		}
+	}
+
+	minio := status.MinIO
+	if minio.BucketsCount > 0 || minio.TotalObjects > 0 {
+		fmt.Fprintf(builder, "[yellow]MinIO:[-] %d bucket(s), %d object(s)\n", minio.BucketsCount, minio.TotalObjects)
+	}
+
+	out := strings.TrimRight(builder.String(), "\n")
+	if out == "" {
+		return "No cluster status available"
+	}
+	return out
+}
+
+func humanizeBytes(value int64) string {
+	if value <= 0 {
+		return "0 B"
+	}
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB"}
+	f := float64(value)
+	idx := 0
+	for f >= 1024 && idx < len(units)-1 {
+		f /= 1024
+		idx++
+	}
+	if f >= 10 || idx == 0 {
+		return fmt.Sprintf("%.0f %s", f, units[idx])
+	}
+	return fmt.Sprintf("%.1f %s", f, units[idx])
 }
