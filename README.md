@@ -233,7 +233,7 @@ Flags:
       --owner string    GitHub owner that hosts the curated services (default "grycap")
       --path string     subdirectory inside the repository that contains the services
       --ref string      Git reference (branch, tag, or commit) to query (default "main")
-  -n, --name string     override the OSCAR service name during deployment
+  -n, --name string     override the OSCAR service and primary bucket names during deployment
       --repo string     GitHub repository that hosts the curated services (default "oscar-hub")
 
 Global Flags:
