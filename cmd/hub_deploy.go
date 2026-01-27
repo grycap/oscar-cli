@@ -82,7 +82,7 @@ func hubDeployFunc(cmd *cobra.Command, args []string, opts *hubDeployOptions) er
 	}
 
 	if opts.name != "" {
-		serviceDef.Name = opts.name
+		overrideServiceName(serviceDef, opts.name)
 	}
 
 	action := "Creating"
@@ -128,7 +128,7 @@ func makeHubDeployCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.rootPath, "path", opts.rootPath, "subdirectory inside the repository that contains the services")
 	cmd.Flags().StringVar(&opts.ref, "ref", opts.ref, "Git reference (branch, tag, or commit) to query")
 	cmd.Flags().StringVar(&opts.apiBase, "api-base", "", "override the GitHub API base URL")
-	cmd.Flags().StringVarP(&opts.name, "name", "n", "", "override the OSCAR service name during deployment")
+	cmd.Flags().StringVarP(&opts.name, "name", "n", "", "override the OSCAR service and primary bucket names during deployment")
 	cmd.Flags().StringVar(&opts.localPath, "local-path", "", "use a local directory containing the RO-Crate metadata instead of fetching it from GitHub")
 	cmd.Flags().StringP("cluster", "c", "", "set the cluster")
 

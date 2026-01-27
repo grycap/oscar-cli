@@ -194,19 +194,19 @@ func overrideServiceName(svc *types.Service, newName string) {
 	if override == "" {
 		return
 	}
-	original := strings.TrimSpace(svc.Name)
-	if original == "" {
-		svc.Name = override
-		return
-	}
-	if original == override {
-		return
+	originalName := strings.TrimSpace(svc.Name)
+	primaryBucket := primaryBucketName(svc)
+	oldBucket := originalName
+	if primaryBucket != "" {
+		oldBucket = primaryBucket
 	}
 
-	renameStoragePaths(&svc.Input, original, override)
-	renameStoragePaths(&svc.Output, original, override)
-	if svc.Mount.Path != "" {
-		svc.Mount.Path = replacePathBucket(svc.Mount.Path, original, override)
+	if strings.TrimSpace(oldBucket) != "" && !strings.EqualFold(oldBucket, override) {
+		renameStoragePaths(&svc.Input, oldBucket, override)
+		renameStoragePaths(&svc.Output, oldBucket, override)
+		if svc.Mount.Path != "" {
+			svc.Mount.Path = replacePathBucket(svc.Mount.Path, oldBucket, override)
+		}
 	}
 
 	svc.Name = override
@@ -257,4 +257,37 @@ func replacePathBucket(path, oldName, newName string) string {
 		builder += "/"
 	}
 	return builder
+}
+
+func primaryBucketName(svc *types.Service) string {
+	if svc == nil {
+		return ""
+	}
+	for _, cfg := range svc.Output {
+		if bucket := bucketFromPath(cfg.Path); bucket != "" {
+			return bucket
+		}
+	}
+	for _, cfg := range svc.Input {
+		if bucket := bucketFromPath(cfg.Path); bucket != "" {
+			return bucket
+		}
+	}
+	if bucket := bucketFromPath(svc.Mount.Path); bucket != "" {
+		return bucket
+	}
+	return ""
+}
+
+func bucketFromPath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	trimmed := strings.Trim(path, " ")
+	trimmed = strings.Trim(trimmed, "/")
+	if trimmed == "" {
+		return ""
+	}
+	parts := strings.SplitN(trimmed, "/", 2)
+	return parts[0]
 }

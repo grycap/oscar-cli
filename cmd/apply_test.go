@@ -36,6 +36,36 @@ func TestOverrideServiceNameUpdatesPaths(t *testing.T) {
 	}
 }
 
+func TestOverrideServiceNameUpdatesPathsWhenBucketDiffersFromServiceName(t *testing.T) {
+	svc := &types.Service{
+		Name: "demo",
+		Input: []types.StorageIOConfig{
+			{Path: "workflow/in"},
+			{Path: "other/in"},
+		},
+		Output: []types.StorageIOConfig{{Path: "workflow"}},
+		Mount:  types.StorageIOConfig{Path: "workflow/mount"},
+	}
+
+	overrideServiceName(svc, "demo-new")
+
+	if svc.Name != "demo-new" {
+		t.Fatalf("expected service name demo-new, got %s", svc.Name)
+	}
+	if got := svc.Input[0].Path; got != "demo-new/in" {
+		t.Fatalf("expected first input path demo-new/in, got %s", got)
+	}
+	if got := svc.Input[1].Path; got != "other/in" {
+		t.Fatalf("unexpected path rewrite: %s", got)
+	}
+	if got := svc.Output[0].Path; got != "demo-new" {
+		t.Fatalf("expected output path demo-new, got %s", got)
+	}
+	if got := svc.Mount.Path; got != "demo-new/mount" {
+		t.Fatalf("expected mount path demo-new/mount, got %s", got)
+	}
+}
+
 func TestReplacePathBucket(t *testing.T) {
 	cases := []struct {
 		name     string

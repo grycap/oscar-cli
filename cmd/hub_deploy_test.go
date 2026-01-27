@@ -25,6 +25,15 @@ functions:
         name: Cowsay
         image: ghcr.io/demo/cowsay:latest
         script: script.sh
+        input:
+        - storage_provider: minio.default
+          path: cowsay/in
+        output:
+        - storage_provider: minio.default
+          path: cowsay
+        mount:
+          storage_provider: minio.default
+          path: cowsay/mount
 `
 		scriptContent = "#!/bin/bash\necho moo\n"
 	)
@@ -97,6 +106,21 @@ default: test
 
 	if applied.Name != override {
 		t.Fatalf("expected service name %s, got %s", override, applied.Name)
+	}
+	if len(applied.Input) != 1 {
+		t.Fatalf("expected 1 input entry, got %d", len(applied.Input))
+	}
+	if got := applied.Input[0].Path; got != "alt-cowsay/in" {
+		t.Fatalf("expected input path alt-cowsay/in, got %s", got)
+	}
+	if len(applied.Output) != 1 {
+		t.Fatalf("expected 1 output entry, got %d", len(applied.Output))
+	}
+	if got := applied.Output[0].Path; got != "alt-cowsay" {
+		t.Fatalf("expected output path alt-cowsay, got %s", got)
+	}
+	if got := applied.Mount.Path; got != "alt-cowsay/mount" {
+		t.Fatalf("expected mount path alt-cowsay/mount, got %s", got)
 	}
 	if applied.Script != scriptContent {
 		t.Fatalf("expected script content %q, got %q", scriptContent, applied.Script)
