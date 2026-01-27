@@ -38,6 +38,7 @@ const infoPath = "/system/info"
 const configPath = "/system/config"
 const statusPath = "/system/status"
 const _DEFAULT_TIMEOUT = 20
+const BASIC_AUTH = "*cluster.basicAuthRoundTripper"
 
 var (
 	// ErrParsingEndpoint error message for cluster endpoint parsing
@@ -109,6 +110,17 @@ func (trt *tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	// Add bearer token to requests
 	req.Header.Add("Authorization", "Bearer "+trt.token)
 	return trt.transport.RoundTrip(req)
+}
+
+func (cluster *Cluster) SetToken(client *http.Client, token string) {
+	var transport http.RoundTripper = &http.Transport{
+		// Enable/disable ssl verification
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !cluster.SSLVerify},
+	}
+	client.Transport = &tokenRoundTripper{
+		token:     token,
+		transport: transport,
+	}
 }
 
 // GetClientSafe returns an HTTP client to communicate with the cluster without exiting on errors.
