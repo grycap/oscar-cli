@@ -28,6 +28,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -259,6 +260,13 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 	client := http.DefaultClient
 	if token == "" {
 		client, _ = c.GetClientSafe()
+		if reflect.TypeOf(client.Transport).String() == cluster.BASIC_AUTH {
+			svc, err := GetService(c, name)
+			if err != nil {
+				return nil, err
+			}
+			c.SetToken(client, svc.Token)
+		}
 	} else {
 		client = http.DefaultClient
 	}
@@ -274,6 +282,8 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 	}
 	runServiceURL.Path = path.Join(runServiceURL.Path, runPath, name)
 	// Make the request
+	fmt.Println("Invoking service at:", runServiceURL.String())
+	fmt.Println("Invoking service at:", client.Transport)
 	req, err := http.NewRequest(http.MethodPost, runServiceURL.String(), input)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -300,6 +310,13 @@ func JobService(c *cluster.Cluster, name string, token string, endpoint string, 
 	client := http.DefaultClient
 	if token == "" {
 		client, _ = c.GetClientSafe()
+		if reflect.TypeOf(client.Transport).String() == "*cluster.basicAuthRoundTripper" {
+			svc, err := GetService(c, name)
+			if err != nil {
+				return nil, err
+			}
+			c.SetToken(client, svc.Token)
+		}
 	} else {
 		client = http.DefaultClient
 	}
