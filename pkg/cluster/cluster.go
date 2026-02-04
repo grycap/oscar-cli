@@ -345,7 +345,8 @@ func (cluster *Cluster) getAccessToken() (string, error) {
 		return "", fmt.Errorf("error at new request: %v", err)
 	}
 	var res *http.Response
-	client := &http.Client{}
+	// Defensive timeout to avoid hanging the TUI when the IdP is slow/unreachable.
+	client := &http.Client{Timeout: 15 * time.Second}
 	res, err = client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error in the request : %v", err)

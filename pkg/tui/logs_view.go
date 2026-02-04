@@ -98,6 +98,12 @@ func (s *uiState) loadLogs(ctx context.Context, clusterName, serviceName string,
 	if strings.TrimSpace(clusterName) == "" || strings.TrimSpace(serviceName) == "" {
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// Defensive timeout for long/looping pagination.
+	ctxFetch, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 
 	clusterCfg := s.conf.Oscar[clusterName]
 	if clusterCfg == nil {
@@ -138,7 +144,7 @@ func (s *uiState) loadLogs(ctx context.Context, clusterName, serviceName string,
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctxFetch.Done():
 			s.setStatus("[red]Log loading cancelled")
 			return
 		default:
