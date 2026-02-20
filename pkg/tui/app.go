@@ -192,6 +192,11 @@ func Run(ctx context.Context, conf *config.Config) error {
 				state.switchToLogs(ctx)
 				return nil
 			}
+		case tcell.KeyDelete:
+			if app.GetFocus() == state.serviceTable && (state.modeIsServices() || state.modeIsBuckets()) {
+				state.requestDeletion()
+				return nil
+			}
 		}
 
 		switch event.Rune() {
@@ -232,7 +237,7 @@ func Run(ctx context.Context, conf *config.Config) error {
 				return nil
 			}
 		case 'd', 'D':
-			if app.GetFocus() == state.serviceTable && state.modeIsServices() {
+			if app.GetFocus() == state.serviceTable && (state.modeIsServices() || state.modeIsBuckets()) {
 				state.requestDeletion()
 				return nil
 			}
