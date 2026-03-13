@@ -257,6 +257,7 @@ Flags:
       --local-path string  use a local directory containing the RO-Crate metadata instead of fetching it from GitHub
       --owner string     GitHub owner that hosts the curated services (default "grycap")
       --path string      subdirectory inside the repository that contains the services
+      --print-acceptance-commands  print the acceptance test shell commands instead of executing them
       --ref string       Git reference (branch, tag, or commit) to query (default "main")
   -n, --name string      override the OSCAR service name during validation
       --repo string      GitHub repository that hosts the curated services (default "oscar-hub")

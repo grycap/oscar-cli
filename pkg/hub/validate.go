@@ -82,6 +82,12 @@ type parsedCommand struct {
 	HTTPExpectStatus   int
 }
 
+// AcceptanceCommandSet stores runnable shell commands for a single acceptance test.
+type AcceptanceCommandSet struct {
+	Test     AcceptanceTest
+	Commands []string
+}
+
 // ValidateService downloads the RO-Crate metadata for the provided slug, runs its acceptance tests against the cluster and returns the aggregated results.
 func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *cluster.Cluster, serviceNameOverride string, localRoot string) ([]AcceptanceResult, error) {
 	if strings.TrimSpace(slug) == "" {
@@ -91,34 +97,7 @@ func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *c
 		return nil, errors.New("cluster configuration is required")
 	}
 
-	var (
-		repoPath       string
-		localCratePath string
-		rawMetadata    []byte
-		err            error
-	)
-
-	localRoot = strings.TrimSpace(localRoot)
-	if localRoot != "" {
-		rawMetadata, localCratePath, err = loadLocalMetadata(localRoot, slug)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		repoPath = c.serviceRepoPath(slug)
-		metadataPath := path.Join(repoPath, metadataFile)
-		rawMetadata, err = c.getFile(ctx, metadataPath)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	crate, err := ParseROCrate(rawMetadata)
-	if err != nil {
-		return nil, err
-	}
-
-	tests, err := crate.AcceptanceTests()
+	repoPath, localCratePath, tests, err := c.loadAcceptanceTests(ctx, slug, localRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +116,66 @@ func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *c
 	}
 
 	return results, nil
+}
+
+// AcceptanceCommands renders the acceptance tests for the provided slug as runnable shell commands.
+func (c *Client) AcceptanceCommands(ctx context.Context, slug string, serviceNameOverride string, localRoot string) ([]AcceptanceCommandSet, error) {
+	if strings.TrimSpace(slug) == "" {
+		return nil, errors.New("service slug cannot be empty")
+	}
+
+	_, localCratePath, tests, err := c.loadAcceptanceTests(ctx, slug, localRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	sets := make([]AcceptanceCommandSet, 0, len(tests))
+	for _, test := range tests {
+		set := AcceptanceCommandSet{
+			Test:     test,
+			Commands: renderAcceptanceCommands(test, slug, serviceNameOverride, localCratePath),
+		}
+		sets = append(sets, set)
+	}
+
+	return sets, nil
+}
+
+func (c *Client) loadAcceptanceTests(ctx context.Context, slug string, localRoot string) (string, string, []AcceptanceTest, error) {
+
+	var (
+		repoPath       string
+		localCratePath string
+		rawMetadata    []byte
+		err            error
+	)
+
+	localRoot = strings.TrimSpace(localRoot)
+	if localRoot != "" {
+		rawMetadata, localCratePath, err = loadLocalMetadata(localRoot, slug)
+		if err != nil {
+			return "", "", nil, err
+		}
+	} else {
+		repoPath = c.serviceRepoPath(slug)
+		metadataPath := path.Join(repoPath, metadataFile)
+		rawMetadata, err = c.getFile(ctx, metadataPath)
+		if err != nil {
+			return "", "", nil, err
+		}
+	}
+
+	crate, err := ParseROCrate(rawMetadata)
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	tests, err := crate.AcceptanceTests()
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	return repoPath, localCratePath, tests, nil
 }
 
 func (c *Client) runAcceptanceTest(ctx context.Context, repoPath, slug string, test AcceptanceTest, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service) AcceptanceResult {
@@ -191,6 +230,218 @@ func buildTestSupplyMap(test AcceptanceTest) map[string]TestInput {
 		supply[input.ID] = input
 	}
 	return supply
+}
+
+func renderAcceptanceCommands(test AcceptanceTest, slug string, serviceNameOverride string, localCratePath string) []string {
+	if len(test.Steps) == 0 {
+		return nil
+	}
+
+	supply := buildTestSupplyMap(test)
+	commands := make([]string, 0, len(test.Steps))
+	for _, step := range test.Steps {
+		parsed := step.ParsedCommand
+		if parsed == nil && strings.TrimSpace(step.Command) != "" {
+			tmp, err := parseAcceptanceCommand(step.Command)
+			if err == nil {
+				parsed = &tmp
+			}
+		}
+		if parsed == nil {
+			continue
+		}
+
+		serviceName := strings.TrimSpace(parsed.ServiceName)
+		if strings.TrimSpace(serviceNameOverride) != "" {
+			serviceName = strings.TrimSpace(serviceNameOverride)
+		}
+		if serviceName == "" {
+			serviceName = slug
+		}
+
+		stepSupply := mergeSupplyMaps(supply, step.Inputs)
+		if rendered := renderParsedCommand(*parsed, step, serviceName, stepSupply, localCratePath); rendered != "" {
+			commands = append(commands, rendered)
+		}
+	}
+	return commands
+}
+
+func renderParsedCommand(cmd parsedCommand, step AcceptanceStep, serviceName string, supply map[string]TestInput, localCratePath string) string {
+	switch cmd.Kind {
+	case stepCommandRun:
+		args := []string{"oscar-cli", "service", "run", serviceName}
+		switch cmd.RunDirective.Mode {
+		case inputModeFile:
+			args = append(args, "--file-input", resolveInputPath(cmd.RunDirective.Value, supply, localCratePath))
+		case inputModeText:
+			args = append(args, "--text-input", cmd.RunDirective.Value)
+		default:
+			return ""
+		}
+		return shellJoin(args)
+	case stepCommandPutFile:
+		args := []string{"oscar-cli", "service", "put-file", serviceName}
+		if strings.TrimSpace(cmd.Provider) != "" {
+			args = append(args, cmd.Provider)
+		}
+		args = append(args, resolveInputPath(cmd.LocalPath, supply, localCratePath))
+		if strings.TrimSpace(cmd.RemotePath) != "" {
+			args = append(args, cmd.RemotePath)
+		}
+		return shellJoin(args)
+	case stepCommandGetFile:
+		args := []string{"oscar-cli", "service", "get-file", serviceName}
+		if strings.TrimSpace(cmd.Provider) != "" {
+			args = append(args, cmd.Provider)
+		}
+		if strings.TrimSpace(cmd.RemotePath) != "" {
+			args = append(args, cmd.RemotePath)
+		}
+		if cmd.LatestRequested {
+			destination := cmd.LatestValue
+			if strings.TrimSpace(destination) == "" {
+				destination = "./downloads"
+			}
+			args = append(args, "--download-latest-into", destination)
+		} else if strings.TrimSpace(cmd.LocalPath) != "" {
+			args = append(args, cmd.LocalPath)
+		}
+		return shellJoin(args)
+	case stepCommandWait:
+		if cmd.WaitDuration <= 0 {
+			return ""
+		}
+		return shellJoin([]string{"sleep", strconv.Itoa(int(cmd.WaitDuration.Round(time.Second).Seconds()))})
+	case stepCommandHTTP:
+		return renderHTTPCurlCommand(cmd, step, serviceName, supply, localCratePath)
+	default:
+		return ""
+	}
+}
+
+func renderHTTPCurlCommand(cmd parsedCommand, step AcceptanceStep, serviceName string, supply map[string]TestInput, localCratePath string) string {
+	args := []string{"curl", "-sS"}
+	method := strings.ToUpper(strings.TrimSpace(cmd.HTTPMethod))
+	if method == "" {
+		method = http.MethodGet
+	}
+	if method != http.MethodGet {
+		args = append(args, "-X", method)
+	}
+	if cmd.HTTPUseServiceAuth {
+		args = append(args, "-u", fmt.Sprintf("%s:${SERVICE_TOKEN}", serviceName))
+	}
+	if strings.TrimSpace(cmd.HTTPAccept) != "" {
+		args = append(args, "-H", "Accept: "+cmd.HTTPAccept)
+	}
+	if len(step.Inputs) > 0 {
+		fieldName := strings.TrimSpace(cmd.HTTPFormField)
+		if fieldName == "" {
+			fieldName = "file"
+		}
+		for _, input := range step.Inputs {
+			path := resolveInputPath(input.ID, supply, localCratePath)
+			formValue := fmt.Sprintf("%s=@%s", fieldName, path)
+			if strings.TrimSpace(input.EncodingFormat) != "" {
+				formValue += ";type=" + input.EncodingFormat
+			}
+			args = append(args, "-F", formValue)
+		}
+	}
+	if outputPath := suggestedOutputPath(step); outputPath != "" {
+		args = append(args, "--output", outputPath)
+	}
+	requestPath := strings.TrimSpace(cmd.HTTPPath)
+	if !strings.HasPrefix(requestPath, "/") {
+		requestPath = "/" + requestPath
+	}
+	args = append(args, "${OSCAR_ENDPOINT%/}/system/services/"+serviceName+"/exposed"+requestPath)
+	return shellJoin(args)
+}
+
+func suggestedOutputPath(step AcceptanceStep) string {
+	for _, mt := range step.ExpectedMedia {
+		switch normalizeMediaType(mt) {
+		case "application/zip":
+			return "./acceptance-output.zip"
+		case "image/png":
+			return "./acceptance-output.png"
+		case "image/jpeg":
+			return "./acceptance-output.jpg"
+		}
+	}
+	return ""
+}
+
+func resolveInputPath(value string, supply map[string]TestInput, localCratePath string) string {
+	if input, ok := supply[value]; ok {
+		if path := localInputPath(input, localCratePath); path != "" {
+			return path
+		}
+		if strings.TrimSpace(input.URL) != "" {
+			return input.URL
+		}
+		if strings.TrimSpace(input.ID) != "" {
+			return "./" + filepath.Base(input.ID)
+		}
+	}
+	if path := localInputPath(TestInput{ID: value}, localCratePath); path != "" {
+		return path
+	}
+	if strings.TrimSpace(value) == "" {
+		return "./input"
+	}
+	return "./" + filepath.Base(value)
+}
+
+func localInputPath(input TestInput, localCratePath string) string {
+	if strings.TrimSpace(localCratePath) == "" {
+		return ""
+	}
+	candidates := []string{input.ID, input.URL}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || isAbsoluteURL(candidate) {
+			continue
+		}
+		clean := filepath.Clean(candidate)
+		if clean == "." || strings.HasPrefix(clean, "..") {
+			continue
+		}
+		full := filepath.Join(localCratePath, clean)
+		if info, err := os.Stat(full); err == nil && !info.IsDir() {
+			if abs, err := filepath.Abs(full); err == nil {
+				return abs
+			}
+			return full
+		}
+	}
+	return ""
+}
+
+func shellJoin(args []string) string {
+	parts := make([]string, 0, len(args))
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == "" {
+			continue
+		}
+		parts = append(parts, shellQuote(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if strings.Contains(value, "${") {
+		return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	}
+	if strings.ContainsAny(value, " \t\n'\"$;&|<>*?()[]{}!") {
+		return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+	}
+	return value
 }
 
 func (c *Client) executeAcceptanceStep(ctx context.Context, repoPath, slug string, test AcceptanceTest, step AcceptanceStep, baseSupply map[string]TestInput, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service, tempDir string) AcceptanceStepResult {

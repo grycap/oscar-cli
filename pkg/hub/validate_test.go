@@ -3,11 +3,14 @@ package hub
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -217,6 +220,85 @@ func TestInvokeExposedHTTPUsesServiceAuthAndMultipart(t *testing.T) {
 	}
 	if err := validateZIPPayload(data); err != nil {
 		t.Fatalf("validateZIPPayload returned error: %v", err)
+	}
+}
+
+func TestAcceptanceCommandsRenderHTTPAndLocalPaths(t *testing.T) {
+	dir := t.TempDir()
+	crateDir := filepath.Join(dir, "posenet-tf")
+	if err := os.MkdirAll(crateDir, 0o755); err != nil {
+		t.Fatalf("creating crate dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(crateDir, "001.jpg"), []byte("jpeg"), 0o600); err != nil {
+		t.Fatalf("writing sample image: %v", err)
+	}
+	raw := `{
+	  "@graph": [
+	    { "@id": "./", "subjectOf": [{ "@id": "#acceptance" }] },
+	    { "@id": "001.jpg", "@type": ["File","ImageObject"], "encodingFormat": "image/jpeg" },
+	    { "@id": "#expected-zip", "@type": ["File"], "encodingFormat": "application/zip" },
+	    {
+	      "@id": "#acceptance",
+	      "@type": "HowTo",
+	      "name": "HTTP acceptance",
+	      "step": [{ "@id": "#step-http" }]
+	    },
+	    {
+	      "@id": "#step-http",
+	      "@type": "HowToStep",
+	      "position": 1,
+	      "potentialAction": { "@id": "#action-http" }
+	    },
+	    {
+	      "@id": "#action-http",
+	      "@type": "ConsumeAction",
+	      "name": "http-request",
+	      "object": { "@id": "001.jpg" },
+	      "result": { "@id": "#expected-zip" },
+	      "additionalProperty": [
+	        { "@id": "#prop-method" },
+	        { "@id": "#prop-path" },
+	        { "@id": "#prop-accept" },
+	        { "@id": "#prop-form-field" }
+	      ]
+	    },
+	    { "@id": "#prop-method", "@type": "PropertyValue", "propertyID": "method", "value": "POST" },
+	    { "@id": "#prop-path", "@type": "PropertyValue", "propertyID": "path", "value": "/v2/models/posenetclas/predict/" },
+	    { "@id": "#prop-accept", "@type": "PropertyValue", "propertyID": "accept", "value": "application/zip" },
+	    { "@id": "#prop-form-field", "@type": "PropertyValue", "propertyID": "formField", "value": "data" }
+	  ]
+	}`
+	if err := os.WriteFile(filepath.Join(crateDir, "ro-crate-metadata.json"), []byte(raw), 0o600); err != nil {
+		t.Fatalf("writing ro-crate: %v", err)
+	}
+
+	client := NewClient()
+	sets, err := client.AcceptanceCommands(context.Background(), "posenet-tf", "body-pose", dir)
+	if err != nil {
+		t.Fatalf("AcceptanceCommands returned error: %v", err)
+	}
+	if len(sets) != 1 {
+		t.Fatalf("expected 1 command set, got %d", len(sets))
+	}
+	if len(sets[0].Commands) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(sets[0].Commands))
+	}
+	command := sets[0].Commands[0]
+	if !strings.Contains(command, "curl") {
+		t.Fatalf("expected curl command, got %q", command)
+	}
+	if !strings.Contains(command, "body-pose:${SERVICE_TOKEN}") {
+		t.Fatalf("expected service auth placeholder, got %q", command)
+	}
+	if !strings.Contains(command, "/system/services/body-pose/exposed/v2/models/posenetclas/predict/") {
+		t.Fatalf("expected exposed path, got %q", command)
+	}
+	if !strings.Contains(command, "--output './acceptance-output.zip'") && !strings.Contains(command, "--output ./acceptance-output.zip") {
+		t.Fatalf("expected output redirection, got %q", command)
+	}
+	absImage, _ := filepath.Abs(filepath.Join(crateDir, "001.jpg"))
+	if !strings.Contains(command, absImage) {
+		t.Fatalf("expected absolute sample image path, got %q", command)
 	}
 }
 
