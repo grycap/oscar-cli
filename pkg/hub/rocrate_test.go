@@ -145,3 +145,121 @@ func TestAcceptanceTestsIncludesStructuredSteps(t *testing.T) {
 		t.Fatalf("expected media type image/png, got %+v", getStep.ExpectedMedia)
 	}
 }
+
+func TestAcceptanceTestsIncludesStructuredHTTPStep(t *testing.T) {
+	raw := []byte(`{
+		"@graph": [
+			{
+				"@id": "./",
+				"subjectOf": [{ "@id": "#acceptance-http" }]
+			},
+			{
+				"@id": "001.jpg",
+				"@type": ["File", "ImageObject"],
+				"name": "Sample input image",
+				"encodingFormat": "image/jpeg"
+			},
+			{
+				"@id": "#expected-zip",
+				"@type": ["File", "MediaObject"],
+				"encodingFormat": "application/zip"
+			},
+			{
+				"@id": "#acceptance-http",
+				"@type": "HowTo",
+				"name": "HTTP acceptance test",
+				"step": [{ "@id": "#step-http" }]
+			},
+			{
+				"@id": "#step-http",
+				"@type": "HowToStep",
+				"position": 1,
+				"potentialAction": { "@id": "#action-http" }
+			},
+			{
+				"@id": "#action-http",
+				"@type": "ConsumeAction",
+				"name": "http-request",
+				"object": { "@id": "001.jpg" },
+				"result": { "@id": "#expected-zip" },
+				"additionalProperty": [
+					{
+						"@id": "#prop-method"
+					},
+					{
+						"@id": "#prop-path"
+					},
+					{
+						"@id": "#prop-accept"
+					},
+					{
+						"@id": "#prop-field"
+					}
+				]
+			},
+			{
+				"@id": "#prop-method",
+				"@type": "PropertyValue",
+				"propertyID": "method",
+				"value": "POST"
+			},
+			{
+				"@id": "#prop-path",
+				"@type": "PropertyValue",
+				"propertyID": "path",
+				"value": "/v2/models/posenetclas/predict/"
+			},
+			{
+				"@id": "#prop-accept",
+				"@type": "PropertyValue",
+				"propertyID": "accept",
+				"value": "application/zip"
+			},
+			{
+				"@id": "#prop-field",
+				"@type": "PropertyValue",
+				"propertyID": "formField",
+				"value": "data"
+			}
+		]
+	}`)
+
+	crate, err := ParseROCrate(raw)
+	if err != nil {
+		t.Fatalf("ParseROCrate returned error: %v", err)
+	}
+
+	tests, err := crate.AcceptanceTests()
+	if err != nil {
+		t.Fatalf("AcceptanceTests returned error: %v", err)
+	}
+
+	if len(tests) != 1 {
+		t.Fatalf("expected 1 acceptance test, got %d", len(tests))
+	}
+
+	test := tests[0]
+	if len(test.Steps) != 1 {
+		t.Fatalf("expected 1 step, got %d", len(test.Steps))
+	}
+
+	step := test.Steps[0]
+	if step.ParsedCommand == nil || step.ParsedCommand.Kind != stepCommandHTTP {
+		t.Fatalf("expected stepCommandHTTP, got %+v", step.ParsedCommand)
+	}
+	if step.ParsedCommand.HTTPMethod != "POST" {
+		t.Fatalf("unexpected HTTP method %q", step.ParsedCommand.HTTPMethod)
+	}
+	if step.ParsedCommand.HTTPPath != "/v2/models/posenetclas/predict/" {
+		t.Fatalf("unexpected HTTP path %q", step.ParsedCommand.HTTPPath)
+	}
+	if step.ParsedCommand.HTTPFormField != "data" {
+		t.Fatalf("unexpected form field %q", step.ParsedCommand.HTTPFormField)
+	}
+	if len(step.ExpectedMedia) != 1 || step.ExpectedMedia[0] != "application/zip" {
+		t.Fatalf("unexpected expected media %+v", step.ExpectedMedia)
+	}
+	if step.Command != "service http POST /v2/models/posenetclas/predict/" {
+		t.Fatalf("unexpected synthetic command %q", step.Command)
+	}
+}

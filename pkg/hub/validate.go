@@ -1,18 +1,24 @@
 package hub
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,21 +58,28 @@ const (
 	stepCommandPutFile
 	stepCommandGetFile
 	stepCommandWait
+	stepCommandHTTP
 )
 
 type parsedCommand struct {
-	Kind            stepCommandKind
-	ServiceName     string
-	RunDirective    inputDirective
-	Provider        string
-	LocalPath       string
-	RemotePath      string
-	RemoteProvided  bool
-	LocalProvided   bool
-	LatestRequested bool
-	LatestValue     string
-	NoProgress      bool
-	WaitDuration    time.Duration
+	Kind               stepCommandKind
+	ServiceName        string
+	RunDirective       inputDirective
+	Provider           string
+	LocalPath          string
+	RemotePath         string
+	RemoteProvided     bool
+	LocalProvided      bool
+	LatestRequested    bool
+	LatestValue        string
+	NoProgress         bool
+	WaitDuration       time.Duration
+	HTTPMethod         string
+	HTTPPath           string
+	HTTPAccept         string
+	HTTPFormField      string
+	HTTPUseServiceAuth bool
+	HTTPExpectStatus   int
 }
 
 // ValidateService downloads the RO-Crate metadata for the provided slug, runs its acceptance tests against the cluster and returns the aggregated results.
@@ -379,12 +392,99 @@ func (c *Client) executeAcceptanceStep(ctx context.Context, repoPath, slug strin
 			result.Passed = true
 			result.Output = fmt.Sprintf("Waited %s", parsed.WaitDuration)
 		}
+	case stepCommandHTTP:
+		svc, err := getServiceDefinition(clusterCfg, serviceName, svcCache)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+
+		payloads, err := resolveHTTPPayloads(ctx, supply, step.Inputs, c, repoPath, localCratePath)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+
+		responseData, responseMedia, statusCode, err := invokeExposedHTTP(clusterCfg, svc, serviceName, *parsed, payloads)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+
+		expectedStatus := parsed.HTTPExpectStatus
+		if expectedStatus == 0 {
+			expectedStatus = http.StatusOK
+		}
+		if statusCode != expectedStatus {
+			result.Passed = false
+			result.Details = fmt.Sprintf("expected HTTP status %d, got %d", expectedStatus, statusCode)
+			result.Output = fmt.Sprintf("HTTP %d", statusCode)
+			return result
+		}
+
+		if len(step.ExpectedMedia) > 0 {
+			detected := firstMatchingMediaType(responseMedia, http.DetectContentType(responseData))
+			if !mediaTypeMatches(detected, step.ExpectedMedia) {
+				result.Passed = false
+				result.Details = fmt.Sprintf("expected media type %s, got %s", strings.Join(step.ExpectedMedia, ", "), detected)
+				result.Output = fmt.Sprintf("HTTP %d, media type: %s", statusCode, detected)
+				return result
+			}
+
+			if normalizeMediaType(detected) == "application/zip" {
+				if err := validateZIPPayload(responseData); err != nil {
+					result.Passed = false
+					result.Details = err.Error()
+					result.Output = fmt.Sprintf("HTTP %d, media type: %s", statusCode, detected)
+					return result
+				}
+			}
+
+			result.Passed = true
+			result.Output = fmt.Sprintf("HTTP %d, media type: %s, bytes: %d", statusCode, detected, len(responseData))
+			return result
+		}
+
+		output := string(responseData)
+		result.Passed, result.Details = evaluateExpectation(step.ExpectedSubstring, output)
+		result.Output = previewOutput(output)
 	default:
 		result.Err = fmt.Errorf("unsupported command for step %s: %s", step.ID, step.Command)
 		return result
 	}
 
 	return result
+}
+
+type httpPayload struct {
+	Name        string
+	Content     []byte
+	ContentType string
+}
+
+func resolveHTTPPayloads(ctx context.Context, supply map[string]TestInput, stepInputs []TestInput, client *Client, repoPath, localCratePath string) ([]httpPayload, error) {
+	if len(stepInputs) == 0 {
+		return nil, errCommandMissingInput
+	}
+
+	payloads := make([]httpPayload, 0, len(stepInputs))
+	for _, input := range stepInputs {
+		content, err := fetchSupplyContent(ctx, client, repoPath, localCratePath, input)
+		if err != nil {
+			return nil, err
+		}
+
+		name := strings.TrimSpace(input.ID)
+		if name == "" {
+			name = "input"
+		}
+		payloads = append(payloads, httpPayload{
+			Name:        filepath.Base(name),
+			Content:     content,
+			ContentType: strings.TrimSpace(input.EncodingFormat),
+		})
+	}
+	return payloads, nil
 }
 
 func mergeSupplyMaps(base map[string]TestInput, stepInputs []TestInput) map[string]TestInput {
@@ -749,6 +849,8 @@ func parseAcceptanceCommand(command string) (parsedCommand, error) {
 		return parseServicePutFile(rest)
 	case "get-file":
 		return parseServiceGetFile(rest)
+	case "http":
+		return parseServiceHTTP(rest)
 	default:
 		return parsedCommand{}, fmt.Errorf("unsupported service subcommand %q", action)
 	}
@@ -867,6 +969,89 @@ func parseServiceGetFile(args []string) (parsedCommand, error) {
 	parsed.LocalProvided = localProvided
 
 	return parsed, nil
+}
+
+func parseServiceHTTP(args []string) (parsedCommand, error) {
+	parsed := parsedCommand{
+		Kind:               stepCommandHTTP,
+		HTTPMethod:         http.MethodGet,
+		HTTPUseServiceAuth: true,
+		HTTPExpectStatus:   http.StatusOK,
+	}
+	if len(args) == 0 {
+		return parsedCommand{}, fmt.Errorf("service http requires SERVICE_NAME argument")
+	}
+
+	positional := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--method":
+			if i+1 >= len(args) {
+				return parsedCommand{}, fmt.Errorf("flag %s missing value", arg)
+			}
+			parsed.HTTPMethod = strings.ToUpper(strings.TrimSpace(args[i+1]))
+			i++
+		case "--path":
+			if i+1 >= len(args) {
+				return parsedCommand{}, fmt.Errorf("flag %s missing value", arg)
+			}
+			parsed.HTTPPath = strings.TrimSpace(args[i+1])
+			i++
+		case "--accept":
+			if i+1 >= len(args) {
+				return parsedCommand{}, fmt.Errorf("flag %s missing value", arg)
+			}
+			parsed.HTTPAccept = strings.TrimSpace(args[i+1])
+			i++
+		case "--form-field":
+			if i+1 >= len(args) {
+				return parsedCommand{}, fmt.Errorf("flag %s missing value", arg)
+			}
+			parsed.HTTPFormField = strings.TrimSpace(args[i+1])
+			i++
+		case "--no-service-auth":
+			parsed.HTTPUseServiceAuth = false
+		case "--status":
+			if i+1 >= len(args) {
+				return parsedCommand{}, fmt.Errorf("flag %s missing value", arg)
+			}
+			status, err := parsePositiveInt(args[i+1])
+			if err != nil {
+				return parsedCommand{}, fmt.Errorf("invalid status code %q", args[i+1])
+			}
+			parsed.HTTPExpectStatus = status
+			i++
+		default:
+			if strings.HasPrefix(arg, "--") {
+				return parsedCommand{}, fmt.Errorf("unsupported flag %q in http command", arg)
+			}
+			positional = append(positional, arg)
+		}
+	}
+
+	if len(positional) == 0 {
+		return parsedCommand{}, fmt.Errorf("service name cannot be empty")
+	}
+	parsed.ServiceName = positional[0]
+	if parsed.HTTPPath == "" {
+		return parsedCommand{}, fmt.Errorf("service http requires --path")
+	}
+	if parsed.HTTPMethod == "" {
+		parsed.HTTPMethod = http.MethodGet
+	}
+	return parsed, nil
+}
+
+func parsePositiveInt(raw string) (int, error) {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, err
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("must be positive")
+	}
+	return value, nil
 }
 
 func parsePutFileCommandArgs(args []string) (provider, localFile, remoteFile string, remoteProvided bool, err error) {
@@ -1029,6 +1214,133 @@ func invokeServiceWithContent(clusterCfg *cluster.Cluster, serviceName string, p
 	}
 	// Fallback to raw response when it is not base64 encoded.
 	return raw, nil
+}
+
+func invokeExposedHTTP(clusterCfg *cluster.Cluster, svc *types.Service, serviceName string, cmd parsedCommand, payloads []httpPayload) ([]byte, string, int, error) {
+	if clusterCfg == nil {
+		return nil, "", 0, errors.New("cluster configuration is required")
+	}
+	if svc == nil {
+		return nil, "", 0, errors.New("service definition is required")
+	}
+
+	baseURL, err := url.Parse(clusterCfg.Endpoint)
+	if err != nil {
+		return nil, "", 0, cluster.ErrParsingEndpoint
+	}
+
+	requestPath := strings.TrimSpace(cmd.HTTPPath)
+	if requestPath == "" {
+		return nil, "", 0, errors.New("http path cannot be empty")
+	}
+	hasTrailingSlash := strings.HasSuffix(requestPath, "/")
+	if !strings.HasPrefix(requestPath, "/") {
+		requestPath = "/" + requestPath
+	}
+	baseURL.Path = path.Join(baseURL.Path, "/system/services", serviceName, "exposed")
+	baseURL.Path = path.Join(baseURL.Path, requestPath)
+	if hasTrailingSlash && !strings.HasSuffix(baseURL.Path, "/") {
+		baseURL.Path += "/"
+	}
+
+	var body io.Reader
+	contentType := ""
+	method := strings.ToUpper(strings.TrimSpace(cmd.HTTPMethod))
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	if len(payloads) > 0 {
+		var buffer bytes.Buffer
+		writer := multipart.NewWriter(&buffer)
+		fieldName := strings.TrimSpace(cmd.HTTPFormField)
+		if fieldName == "" {
+			fieldName = "file"
+		}
+		for _, payload := range payloads {
+			header := textproto.MIMEHeader{}
+			header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, escapeQuotes(fieldName), escapeQuotes(payload.Name)))
+			partType := strings.TrimSpace(payload.ContentType)
+			if partType == "" {
+				partType = mime.TypeByExtension(filepath.Ext(payload.Name))
+			}
+			if partType == "" {
+				partType = "application/octet-stream"
+			}
+			header.Set("Content-Type", partType)
+			part, err := writer.CreatePart(header)
+			if err != nil {
+				return nil, "", 0, fmt.Errorf("creating multipart field: %w", err)
+			}
+			if _, err := part.Write(payload.Content); err != nil {
+				return nil, "", 0, fmt.Errorf("writing multipart content: %w", err)
+			}
+		}
+		if err := writer.Close(); err != nil {
+			return nil, "", 0, fmt.Errorf("closing multipart body: %w", err)
+		}
+		body = &buffer
+		contentType = writer.FormDataContentType()
+	}
+
+	req, err := http.NewRequest(method, baseURL.String(), body)
+	if err != nil {
+		return nil, "", 0, cluster.ErrMakingRequest
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if accept := strings.TrimSpace(cmd.HTTPAccept); accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	if cmd.HTTPUseServiceAuth && svc.Expose.SetAuth {
+		req.SetBasicAuth(serviceName, svc.Token)
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !clusterCfg.SSLVerify},
+		},
+		Timeout: 30 * time.Second,
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, "", 0, cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("reading http response: %w", err)
+	}
+
+	return data, res.Header.Get("Content-Type"), res.StatusCode, nil
+}
+
+func firstMatchingMediaType(values ...string) string {
+	for _, value := range values {
+		if normalized := normalizeMediaType(value); normalized != "" {
+			return normalized
+		}
+	}
+	return ""
+}
+
+func validateZIPPayload(data []byte) error {
+	readerAt := bytes.NewReader(data)
+	archive, err := zip.NewReader(readerAt, int64(len(data)))
+	if err != nil {
+		return fmt.Errorf("response is not a valid zip archive: %w", err)
+	}
+	if len(archive.File) == 0 {
+		return errors.New("zip archive is empty")
+	}
+	return nil
+}
+
+func escapeQuotes(value string) string {
+	replacer := strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+	return replacer.Replace(value)
 }
 
 func previewOutput(output string) string {
