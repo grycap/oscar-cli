@@ -122,6 +122,9 @@ func Run(ctx context.Context, conf *config.Config) error {
 	app.SetRoot(pages, true)
 	app.SetFocus(state.clusterList)
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if state.handleNavigationKey(event) {
+			return nil
+		}
 		return state.safeInputCapture(ctx, event)
 	})
 
@@ -155,6 +158,110 @@ func Run(ctx context.Context, conf *config.Config) error {
 	}
 	state.stopAutoRefresh()
 	return nil
+}
+
+func (s *uiState) handleNavigationKey(event *tcell.EventKey) bool {
+	if event == nil {
+		return false
+	}
+	if s.searchVisible || s.autoRefreshPromptVisible || s.confirmVisible || s.legendVisible {
+		return false
+	}
+
+	delta := 0
+	absolute := 0
+	absoluteSet := false
+	switch event.Key() {
+	case tcell.KeyUp:
+		delta = -1
+	case tcell.KeyDown:
+		delta = 1
+	case tcell.KeyPgUp:
+		delta = -10
+	case tcell.KeyPgDn:
+		delta = 10
+	case tcell.KeyHome:
+		absolute = 0
+		absoluteSet = true
+	case tcell.KeyEnd:
+		absolute = -1
+		absoluteSet = true
+	default:
+		return false
+	}
+
+	focus := s.app.GetFocus()
+	switch focus {
+	case s.clusterList:
+		return s.navigateClusterList(delta, absolute, absoluteSet)
+	case s.serviceTable:
+		return s.navigateTableRows(s.serviceTable, delta, absolute, absoluteSet)
+	case s.bucketObjectsTable:
+		return s.navigateTableRows(s.bucketObjectsTable, delta, absolute, absoluteSet)
+	default:
+		return false
+	}
+}
+
+func (s *uiState) navigateClusterList(delta, absolute int, absoluteSet bool) bool {
+	total := len(s.clusterNames)
+	if total <= 0 {
+		return true
+	}
+	current := s.clusterList.GetCurrentItem()
+	if current < 0 {
+		current = 0
+	}
+	target := current
+	if absoluteSet {
+		if absolute < 0 {
+			target = total - 1
+		} else {
+			target = absolute
+		}
+	} else {
+		target += delta
+	}
+	if target < 0 {
+		target = 0
+	}
+	if target >= total {
+		target = total - 1
+	}
+	s.clusterList.SetCurrentItem(target)
+	return true
+}
+
+func (s *uiState) navigateTableRows(table *tview.Table, delta, absolute int, absoluteSet bool) bool {
+	if table == nil {
+		return false
+	}
+	rowCount := table.GetRowCount()
+	if rowCount <= 1 {
+		return true
+	}
+	row, col := table.GetSelection()
+	if row < 1 {
+		row = 1
+	}
+	target := row
+	if absoluteSet {
+		if absolute < 0 {
+			target = rowCount - 1
+		} else {
+			target = absolute + 1
+		}
+	} else {
+		target += delta
+	}
+	if target < 1 {
+		target = 1
+	}
+	if target >= rowCount {
+		target = rowCount - 1
+	}
+	table.Select(target, col)
+	return true
 }
 
 func (s *uiState) selectCluster(ctx context.Context, name string) {
