@@ -246,6 +246,8 @@ Default curated source: https://github.com/grycap/oscar-hub/tree/main
 
 Run the acceptance tests defined in a curated RO-Crate against a deployed service.
 
+The validator understands the structured acceptance steps currently used in OSCAR Hub RO-Crates, including synchronous `service run`, staged `put-file` / `get-file` flows, waits, and exposed-service HTTP checks with multipart uploads and response media validation.
+
 ```
 Usage:
   oscar-cli hub validate SERVICE-SLUG [flags]
@@ -255,6 +257,7 @@ Flags:
       --local-path string  use a local directory containing the RO-Crate metadata instead of fetching it from GitHub
       --owner string     GitHub owner that hosts the curated services (default "grycap")
       --path string      subdirectory inside the repository that contains the services
+      --print-acceptance-commands  print the acceptance test shell commands instead of executing them
       --ref string       Git reference (branch, tag, or commit) to query (default "main")
   -n, --name string      override the OSCAR service name during validation
       --repo string      GitHub repository that hosts the curated services (default "oscar-hub")

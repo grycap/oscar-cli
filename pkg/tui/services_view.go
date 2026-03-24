@@ -136,9 +136,14 @@ func (s *uiState) loadServices(ctx context.Context, name string, force bool) {
 	}
 
 	s.setStatus(fmt.Sprintf("[yellow]Loading services for cluster %s…", name))
-	s.queueUpdate(func() {
-		s.showServiceMessage("Loading…")
-	})
+	s.mutex.Lock()
+	keepTable := force && s.currentCluster == name && len(s.currentServices) > 0
+	s.mutex.Unlock()
+	if !keepTable {
+		s.queueUpdate(func() {
+			s.showServiceMessage("Loading…")
+		})
+	}
 
 	s.mutex.Lock()
 	if s.refreshing && !force && s.loadingCluster == name {

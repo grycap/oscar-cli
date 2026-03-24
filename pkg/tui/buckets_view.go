@@ -84,9 +84,14 @@ func (s *uiState) loadBuckets(ctx context.Context, name string, force bool) {
 	}
 
 	s.setStatus(fmt.Sprintf("[yellow]Loading buckets for cluster %s…", name))
-	s.queueUpdate(func() {
-		s.showBucketMessage("Loading buckets…")
-	})
+	s.mutex.Lock()
+	keepTable := force && s.currentCluster == name && len(s.bucketInfos) > 0
+	s.mutex.Unlock()
+	if !keepTable {
+		s.queueUpdate(func() {
+			s.showBucketMessage("Loading buckets…")
+		})
+	}
 
 	s.mutex.Lock()
 	if s.bucketCancel != nil {
