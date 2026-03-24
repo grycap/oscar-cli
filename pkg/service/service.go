@@ -282,8 +282,6 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 	}
 	runServiceURL.Path = path.Join(runServiceURL.Path, runPath, name)
 	// Make the request
-	fmt.Println("Invoking service at:", runServiceURL.String())
-	fmt.Println("Invoking service at:", client.Transport)
 	req, err := http.NewRequest(http.MethodPost, runServiceURL.String(), input)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)

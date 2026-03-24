@@ -27,13 +27,14 @@ import (
 )
 
 type hubValidateOptions struct {
-	owner     string
-	repo      string
-	rootPath  string
-	ref       string
-	apiBase   string
-	name      string
-	localPath string
+	owner                   string
+	repo                    string
+	rootPath                string
+	ref                     string
+	apiBase                 string
+	name                    string
+	localPath               string
+	printAcceptanceCommands bool
 }
 
 func (o *hubValidateOptions) applyToClient() []hub.Option {
@@ -67,9 +68,36 @@ func hubValidateFunc(cmd *cobra.Command, args []string, opts *hubValidateOptions
 	}
 
 	out := cmd.OutOrStdout()
+	client := hub.NewClient(append(opts.applyToClient(), hub.WithLogWriter(out))...)
+	if opts.printAcceptanceCommands {
+		fmt.Fprintf(out, "Acceptance commands for %s\n", args[0])
+		sets, err := client.AcceptanceCommands(cmd.Context(), args[0], opts.name, opts.localPath)
+		if err != nil {
+			return err
+		}
+		serviceName := strings.TrimSpace(opts.name)
+		if serviceName == "" {
+			serviceName = args[0]
+		}
+		if requiresEndpointOrToken(sets) {
+			fmt.Fprintf(out, "export OSCAR_ENDPOINT=%q\n", conf.Oscar[clusterID].Endpoint)
+			fmt.Fprintf(out, "export SERVICE_TOKEN=\"$(oscar-cli service get %s -c %s | awk '/^token:/{print $2; exit}')\"\n", serviceName, clusterID)
+		}
+		for _, set := range sets {
+			name := strings.TrimSpace(set.Test.Name)
+			if name == "" {
+				name = set.Test.ID
+			}
+			fmt.Fprintf(out, "# %s\n", name)
+			for _, command := range set.Commands {
+				fmt.Fprintln(out, command)
+			}
+		}
+		return nil
+	}
+
 	fmt.Fprintf(out, "Acceptance tests for %s\n", args[0])
 
-	client := hub.NewClient(append(opts.applyToClient(), hub.WithLogWriter(out))...)
 	results, err := client.ValidateService(cmd.Context(), args[0], conf.Oscar[clusterID], opts.name, opts.localPath)
 	if err != nil {
 		return err
@@ -87,6 +115,17 @@ func hubValidateFunc(cmd *cobra.Command, args []string, opts *hubValidateOptions
 	}
 
 	return nil
+}
+
+func requiresEndpointOrToken(sets []hub.AcceptanceCommandSet) bool {
+	for _, set := range sets {
+		for _, command := range set.Commands {
+			if strings.Contains(command, "${OSCAR_ENDPOINT") || strings.Contains(command, "${SERVICE_TOKEN}") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func makeHubValidateCmd() *cobra.Command {
@@ -115,6 +154,7 @@ func makeHubValidateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.apiBase, "api-base", "", "override the GitHub API base URL")
 	cmd.Flags().StringVarP(&opts.name, "name", "n", "", "override the OSCAR service name during validation")
 	cmd.Flags().StringVar(&opts.localPath, "local-path", "", "use a local directory containing the RO-Crate metadata instead of fetching it from GitHub")
+	cmd.Flags().BoolVar(&opts.printAcceptanceCommands, "print-acceptance-commands", false, "print the acceptance test shell commands instead of executing them")
 	if flag := cmd.Flags().Lookup("api-base"); flag != nil {
 		flag.Hidden = true
 	}

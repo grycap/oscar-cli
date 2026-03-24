@@ -122,6 +122,7 @@ type uiState struct {
 	currentLogJobKey         string
 	currentLogService        string
 	currentLogCluster        string
+	inputHandling            int32
 }
 
 type bucketObjectState struct {
