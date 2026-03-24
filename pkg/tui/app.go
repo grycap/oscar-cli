@@ -122,6 +122,9 @@ func Run(ctx context.Context, conf *config.Config) error {
 	app.SetRoot(pages, true)
 	app.SetFocus(state.clusterList)
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if state.handleNavigationKey(event) {
+			return nil
+		}
 		return state.safeInputCapture(ctx, event)
 	})
 
