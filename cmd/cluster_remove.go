@@ -37,10 +37,10 @@ func clusterRemoveFunc(cmd *cobra.Command, args []string) error {
 
 func makeClusterRemoveCmd() *cobra.Command {
 	clusterRemoveCmd := &cobra.Command{
-		Use:     "remove IDENTIFIER",
-		Short:   "Remove a cluster from the configuration file",
+		Use:     "delete IDENTIFIER",
+		Short:   "Delete a cluster from the configuration file",
 		Args:    cobra.ExactArgs(1),
-		Aliases: []string{"rm"},
+		Aliases: []string{"d", "del", "remove", "rm"},
 		RunE:    clusterRemoveFunc,
 	}
 

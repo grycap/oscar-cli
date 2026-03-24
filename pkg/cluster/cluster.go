@@ -36,7 +36,9 @@ import (
 
 const infoPath = "/system/info"
 const configPath = "/system/config"
+const statusPath = "/system/status"
 const _DEFAULT_TIMEOUT = 20
+const BASIC_AUTH = "*cluster.basicAuthRoundTripper"
 
 var (
 	// ErrParsingEndpoint error message for cluster endpoint parsing
@@ -110,8 +112,19 @@ func (trt *tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	return trt.transport.RoundTrip(req)
 }
 
-// GetClient returns an HTTP client to communicate with the cluster
-func (cluster *Cluster) GetClient(args ...int) *http.Client {
+func (cluster *Cluster) SetToken(client *http.Client, token string) {
+	var transport http.RoundTripper = &http.Transport{
+		// Enable/disable ssl verification
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !cluster.SSLVerify},
+	}
+	client.Transport = &tokenRoundTripper{
+		token:     token,
+		transport: transport,
+	}
+}
+
+// GetClientSafe returns an HTTP client to communicate with the cluster without exiting on errors.
+func (cluster *Cluster) GetClientSafe(args ...int) (*http.Client, error) {
 	timeout := _DEFAULT_TIMEOUT
 
 	var transport http.RoundTripper = &http.Transport{
@@ -124,13 +137,12 @@ func (cluster *Cluster) GetClient(args ...int) *http.Client {
 		token, err := liboidcagent.GetAccessToken(liboidcagent.TokenRequest{
 			ShortName:       cluster.OIDCAccountName,
 			MinValidPeriod:  600,
-			Scopes:          []string{"openid", "profile", "eduperson_entitlement"},
+			Scopes:          []string{},
 			ApplicationHint: "OSCAR-CLI",
 		})
 
 		if err != nil {
-			fmt.Printf("Unable to get the OIDC token, please check your oidc-agent configuration. Error: %v\n", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("unable to get the OIDC token, please check your oidc-agent configuration: %w", err)
 		}
 
 		transport = &tokenRoundTripper{
@@ -140,8 +152,7 @@ func (cluster *Cluster) GetClient(args ...int) *http.Client {
 	} else if cluster.OIDCRefreshToken != "" {
 		accessToken, err := cluster.getAccessToken()
 		if err != nil {
-			fmt.Printf("Unable to get the OIDC token from refresh token, please check your configuration. Error: %v\n", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("unable to get the OIDC token from refresh token, please check your configuration: %w", err)
 		}
 		transport = &tokenRoundTripper{
 			token:     accessToken,
@@ -163,7 +174,17 @@ func (cluster *Cluster) GetClient(args ...int) *http.Client {
 	return &http.Client{
 		Transport: transport,
 		Timeout:   time.Second * time.Duration(timeout),
+	}, nil
+}
+
+// GetClient returns an HTTP client to communicate with the cluster
+func (cluster *Cluster) GetClient(args ...int) *http.Client {
+	client, err := cluster.GetClientSafe(args...)
+	if err != nil {
+		fmt.Printf("Unable to create the HTTP client: %v\n", err)
+		os.Exit(1)
 	}
+	return client
 }
 
 // GetClusterInfo returns info from an OSCAR cluster
@@ -179,7 +200,12 @@ func (cluster *Cluster) GetClusterInfo() (info types.Info, err error) {
 		return info, ErrMakingRequest
 	}
 
-	res, err := cluster.GetClient().Do(req)
+	client, err := cluster.GetClientSafe()
+	if err != nil {
+		return info, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return info, ErrSendingRequest
 	}
@@ -208,7 +234,12 @@ func (cluster *Cluster) GetClusterConfig() (cfg types.Config, err error) {
 		return cfg, ErrMakingRequest
 	}
 
-	res, err := cluster.GetClient().Do(req)
+	client, err := cluster.GetClientSafe()
+	if err != nil {
+		return cfg, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return cfg, ErrSendingRequest
 	}
@@ -222,6 +253,41 @@ func (cluster *Cluster) GetClusterConfig() (cfg types.Config, err error) {
 	json.NewDecoder(res.Body).Decode(&cfg)
 
 	return cfg, nil
+}
+
+// GetClusterStatus returns the status of an OSCAR cluster
+func (cluster *Cluster) GetClusterStatus() (status StatusInfo, err error) {
+	getStatusURL, err := url.Parse(cluster.Endpoint)
+	if err != nil {
+		return status, ErrParsingEndpoint
+	}
+	getStatusURL.Path = path.Join(getStatusURL.Path, statusPath)
+
+	req, err := http.NewRequest(http.MethodGet, getStatusURL.String(), nil)
+	if err != nil {
+		return status, ErrMakingRequest
+	}
+
+	client, err := cluster.GetClientSafe()
+	if err != nil {
+		return status, err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return status, ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := CheckStatusCode(res); err != nil {
+		return status, err
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&status); err != nil {
+		return status, fmt.Errorf("unable to parse cluster status response: %w", err)
+	}
+
+	return status, nil
 }
 
 // CheckStatusCode checks if a cluster response is valid and returns an appropriate error if not
@@ -246,8 +312,8 @@ func CheckStatusCode(res *http.Response) error {
 	return errors.New(string(body))
 }
 
-func (cluser *Cluster) getAccessToken() (string, error) {
-	token, _ := jwt.Parse(cluser.OIDCRefreshToken, func(token *jwt.Token) (interface{}, error) {
+func (cluster *Cluster) getAccessToken() (string, error) {
+	token, _ := jwt.Parse(cluster.OIDCRefreshToken, func(token *jwt.Token) (interface{}, error) {
 		return []byte("AllYourBase"), nil
 	})
 	iss, err := token.Claims.GetIssuer()
@@ -269,7 +335,7 @@ func (cluser *Cluster) getAccessToken() (string, error) {
 	}
 
 	jsonBody := []byte("grant_type=refresh_token&refresh_token=" +
-		cluser.OIDCRefreshToken +
+		cluster.OIDCRefreshToken +
 		"&client_id=" + clientId + "&scope=" + scope)
 
 	bodyReader := bytes.NewReader(jsonBody)
@@ -279,7 +345,8 @@ func (cluser *Cluster) getAccessToken() (string, error) {
 		return "", fmt.Errorf("error at new request: %v", err)
 	}
 	var res *http.Response
-	client := &http.Client{}
+	// Defensive timeout to avoid hanging the TUI when the IdP is slow/unreachable.
+	client := &http.Client{Timeout: 15 * time.Second}
 	res, err = client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error in the request : %v", err)

@@ -64,7 +64,7 @@ func makeServiceRemoveCmd() *cobra.Command {
 		Use:     "delete SERVICE_NAME...",
 		Short:   "Delete a service from the cluster",
 		Args:    cobra.MinimumNArgs(1),
-		Aliases: []string{"rm"},
+		Aliases: []string{"d", "del", "remove", "rm"},
 		RunE:    serviceRemoveFunc,
 	}
 

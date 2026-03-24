@@ -17,6 +17,7 @@ limitations under the License.
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/grycap/oscar-cli/pkg/config"
@@ -25,6 +26,24 @@ import (
 )
 
 func serviceLogsGetFunc(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("requires SERVICE_NAME")
+	}
+
+	latest, _ := cmd.Flags().GetBool("latest")
+
+	if latest && len(args) > 1 {
+		return fmt.Errorf("JOB_NAME cannot be used together with --latest")
+	}
+
+	if !latest && len(args) < 2 {
+		return fmt.Errorf("requires JOB_NAME or use --latest")
+	}
+
+	if len(args) > 2 {
+		return fmt.Errorf("too many arguments")
+	}
+
 	// Read the config file
 	conf, err := config.ReadConfig(configPath)
 	if err != nil {
@@ -37,8 +56,22 @@ func serviceLogsGetFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	showTimestamps, _ := cmd.Flags().GetBool("show-timestamps")
+	serviceName := args[0]
+	jobName := ""
 
-	logs, err := service.GetLogs(conf.Oscar[cluster], args[0], args[1], showTimestamps)
+	if latest {
+		jobName, err = service.FindLatestJobName(conf.Oscar[cluster], serviceName)
+		if err != nil {
+			if errors.Is(err, service.ErrNoLogsFound) {
+				return fmt.Errorf("service %q has no logs", serviceName)
+			}
+			return err
+		}
+	} else {
+		jobName = args[1]
+	}
+
+	logs, err := service.GetLogs(conf.Oscar[cluster], serviceName, jobName, showTimestamps)
 	if err != nil {
 		return err
 	}
@@ -50,13 +83,14 @@ func serviceLogsGetFunc(cmd *cobra.Command, args []string) error {
 
 func makeServiceLogsGetCmd() *cobra.Command {
 	serviceLogsGetCmd := &cobra.Command{
-		Use:     "get SERVICE_NAME JOB_NAME",
+		Use:     "get SERVICE_NAME [JOB_NAME]",
 		Short:   "Get the logs from a service's job",
-		Args:    cobra.ExactArgs(2),
+		Args:    cobra.MinimumNArgs(1),
 		Aliases: []string{"g"},
 		RunE:    serviceLogsGetFunc,
 	}
 
+	serviceLogsGetCmd.Flags().BoolP("latest", "l", false, "get logs from the most recent job")
 	serviceLogsGetCmd.Flags().BoolP("show-timestamps", "t", false, "show timestamps in the logs")
 
 	return serviceLogsGetCmd

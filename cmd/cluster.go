@@ -42,6 +42,7 @@ func makeClusterCmd() *cobra.Command {
 	clusterCmd.AddCommand(makeClusterAddCmd())
 	clusterCmd.AddCommand(makeClusterRemoveCmd())
 	clusterCmd.AddCommand(makeClusterInfoCmd())
+	clusterCmd.AddCommand(makeClusterStatusCmd())
 	clusterCmd.AddCommand(makeClusterListCmd())
 	clusterCmd.AddCommand(makeClusterDefaultCmd())
 
