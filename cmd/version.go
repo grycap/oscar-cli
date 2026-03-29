@@ -18,7 +18,7 @@ package cmd
 
 import (
 	"fmt"
-
+	"runtime/debug"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +30,7 @@ var (
 )
 
 func versionFunc(cmd *cobra.Command, args []string) {
+	info, ok := debug.ReadBuildInfo()
 	if Version != "" {
 		fmt.Println("version:", Version)
 	} else {
