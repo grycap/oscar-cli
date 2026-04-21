@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/grycap/oscar/v3/pkg/types"
 )
 
@@ -256,5 +257,83 @@ func TestGetClusterStatusError(t *testing.T) {
 	}
 	if err.Error() != "boom\n" {
 		t.Fatalf("expected boom error, got %v", err)
+	}
+}
+
+func TestGetClientSafeInvalidOIDCRefreshToken(t *testing.T) {
+	c := &Cluster{
+		Endpoint:         "https://cluster.example",
+		OIDCRefreshToken: "change-me",
+		SSLVerify:        true,
+	}
+
+	_, err := c.GetClientSafe()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unable to get the OIDC token from refresh token") {
+		t.Fatalf("expected wrapped refresh token error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "invalid OIDC refresh token") {
+		t.Fatalf("expected invalid token detail, got %v", err)
+	}
+}
+
+func TestGetAccessToken(t *testing.T) {
+	const (
+		issuerPath    = "/realms/oscar"
+		expectedAzp   = "oscar-cli"
+		expectedScope = "openid profile"
+		accessToken   = "access-token"
+	)
+
+	var receivedRefreshToken string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != issuerPath+"/protocol/openid-connect/token" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parsing form: %v", err)
+		}
+		if got := r.Form.Get("grant_type"); got != "refresh_token" {
+			t.Fatalf("expected refresh_token grant type, got %q", got)
+		}
+		if got := r.Form.Get("client_id"); got != expectedAzp {
+			t.Fatalf("expected client_id %q, got %q", expectedAzp, got)
+		}
+		if got := r.Form.Get("scope"); got != expectedScope {
+			t.Fatalf("expected scope %q, got %q", expectedScope, got)
+		}
+		receivedRefreshToken = r.Form.Get("refresh_token")
+		if err := json.NewEncoder(w).Encode(ResponseRefreshToken{AccessToken: accessToken}); err != nil {
+			t.Fatalf("encoding token response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"iss":   server.URL + issuerPath,
+		"scope": expectedScope,
+		"azp":   expectedAzp,
+	}).SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatalf("signing refresh token: %v", err)
+	}
+
+	c := &Cluster{
+		OIDCRefreshToken: refreshToken,
+	}
+
+	got, err := c.getAccessToken()
+	if err != nil {
+		t.Fatalf("getAccessToken returned error: %v", err)
+	}
+	if got != accessToken {
+		t.Fatalf("expected access token %q, got %q", accessToken, got)
+	}
+	if receivedRefreshToken != refreshToken {
+		t.Fatalf("expected refresh token to be forwarded unchanged")
 	}
 }
