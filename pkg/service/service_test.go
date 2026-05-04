@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 func TestReadFDL(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/grycap/oscar-cli/pkg/service"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 func (s *uiState) markServicePanelVisited() {

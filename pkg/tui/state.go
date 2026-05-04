@@ -9,7 +9,7 @@ import (
 
 	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/storage"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 const legendText = `[yellow]Navigation[-]

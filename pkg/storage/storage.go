@@ -39,7 +39,7 @@ import (
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/service"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 var DefaultStorageProvider = []string{"minio.default", "minio"}

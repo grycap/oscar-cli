@@ -22,7 +22,7 @@ require (
 require (
 	github.com/gdamore/tcell/v2 v2.8.1
 	github.com/golang-jwt/jwt/v5 v5.2.2
-	github.com/grycap/oscar/v3 v3.7.2-0.20260425190504-180ff2b7b84b
+	github.com/grycap/oscar/v4 v4.0.0
 	github.com/indigo-dc/liboidcagent-go v0.3.0
 	github.com/rivo/tview v0.42.0
 	golang.org/x/term v0.38.0
