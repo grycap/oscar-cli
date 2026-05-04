@@ -9,7 +9,7 @@ import (
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar-cli/pkg/storage"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 func truncateString(val string, limit int) string {

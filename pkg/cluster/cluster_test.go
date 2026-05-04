@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 func TestCheckStatusCode(t *testing.T) {
