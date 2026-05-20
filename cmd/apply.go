@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -27,7 +28,7 @@ import (
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/service"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -35,6 +36,7 @@ var (
 	failureString        = color.New(color.FgRed).Sprint("✗ ")
 	successString        = color.New(color.FgGreen).Sprint("✓ ")
 	destinationClusterID string
+	serviceNameOverride  string
 )
 
 func applyFunc(cmd *cobra.Command, args []string) error {
@@ -108,6 +110,10 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 
 			svc.ClusterID = targetCluster
 
+			if trimmed := strings.TrimSpace(serviceNameOverride); trimmed != "" {
+				overrideServiceName(svc, trimmed)
+			}
+
 			msg := fmt.Sprintf(" Creating service \"%s\" in cluster \"%s\"", svc.Name, targetCluster)
 			method := http.MethodPost
 
@@ -175,6 +181,113 @@ func makeApplyCmd() *cobra.Command {
 	applyCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
 	applyCmd.Flags().StringVarP(&destinationClusterID, "cluster", "c", "", "override the cluster id defined in the FDL file")
 	applyCmd.Flags().Bool("default", false, "override the cluster id defined in config file")
+	applyCmd.Flags().StringVarP(&serviceNameOverride, "name", "n", "", "override the OSCAR service and primary bucket names during deployment")
 
 	return applyCmd
+}
+
+func overrideServiceName(svc *types.Service, newName string) {
+	if svc == nil {
+		return
+	}
+	override := strings.TrimSpace(newName)
+	if override == "" {
+		return
+	}
+	originalName := strings.TrimSpace(svc.Name)
+	primaryBucket := primaryBucketName(svc)
+	oldBucket := originalName
+	if primaryBucket != "" {
+		oldBucket = primaryBucket
+	}
+
+	if strings.TrimSpace(oldBucket) != "" && !strings.EqualFold(oldBucket, override) {
+		renameStoragePaths(&svc.Input, oldBucket, override)
+		renameStoragePaths(&svc.Output, oldBucket, override)
+		if svc.Mount.Path != "" {
+			svc.Mount.Path = replacePathBucket(svc.Mount.Path, oldBucket, override)
+		}
+	}
+
+	svc.Name = override
+}
+
+func renameStoragePaths(configs *[]types.StorageIOConfig, oldName, newName string) {
+	if configs == nil {
+		return
+	}
+	items := *configs
+	changed := false
+	for i := range items {
+		updated := replacePathBucket(items[i].Path, oldName, newName)
+		if updated != items[i].Path {
+			items[i].Path = updated
+			changed = true
+		}
+	}
+	if changed {
+		*configs = items
+	}
+}
+
+func replacePathBucket(path, oldName, newName string) string {
+	if strings.TrimSpace(path) == "" {
+		return path
+	}
+	trimmed := strings.Trim(path, " ")
+	leadingSlash := strings.HasPrefix(trimmed, "/")
+	trailingSlash := strings.HasSuffix(trimmed, "/")
+	trimmed = strings.Trim(trimmed, "/")
+	if trimmed == "" {
+		return path
+	}
+	parts := strings.SplitN(trimmed, "/", 2)
+	if !strings.EqualFold(parts[0], oldName) {
+		return path
+	}
+	replacement := newName
+	if len(parts) == 2 && parts[1] != "" {
+		replacement = fmt.Sprintf("%s/%s", newName, parts[1])
+	}
+	builder := replacement
+	if leadingSlash {
+		builder = "/" + builder
+	}
+	if trailingSlash && !strings.HasSuffix(builder, "/") {
+		builder += "/"
+	}
+	return builder
+}
+
+func primaryBucketName(svc *types.Service) string {
+	if svc == nil {
+		return ""
+	}
+	for _, cfg := range svc.Output {
+		if bucket := bucketFromPath(cfg.Path); bucket != "" {
+			return bucket
+		}
+	}
+	for _, cfg := range svc.Input {
+		if bucket := bucketFromPath(cfg.Path); bucket != "" {
+			return bucket
+		}
+	}
+	if bucket := bucketFromPath(svc.Mount.Path); bucket != "" {
+		return bucket
+	}
+	return ""
+}
+
+func bucketFromPath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	trimmed := strings.Trim(path, " ")
+	trimmed = strings.Trim(trimmed, "/")
+	if trimmed == "" {
+		return ""
+	}
+	parts := strings.SplitN(trimmed, "/", 2)
+	return parts[0]
 }

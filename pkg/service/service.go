@@ -18,7 +18,7 @@ package service
 
 import (
 	"bytes"
-	"crypto/tls"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,12 +28,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
-	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 const servicesPath = "/system/services"
@@ -57,6 +57,9 @@ func ReadFDL(path string) (fdl *FDL, err error) {
 	if err != nil {
 		return fdl, errors.New("cannot read the file, please check the path")
 	}
+	// Change \r\n line ending to \n to avoid YAML unmarshal errors
+	safeContent := strings.Replace(string(content), "\r\n", "\n", -1)
+	content = []byte(safeContent)
 
 	// Unmarshal the FDL
 	err = yaml.Unmarshal(content, fdl)
@@ -102,7 +105,12 @@ func GetService(c *cluster.Cluster, name string) (svc *types.Service, err error)
 		return svc, cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return svc, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return svc, cluster.ErrSendingRequest
 	}
@@ -123,18 +131,32 @@ func GetService(c *cluster.Cluster, name string) (svc *types.Service, err error)
 
 // ListServices gets a service from a cluster
 func ListServices(c *cluster.Cluster) (svcList []*types.Service, err error) {
+	return ListServicesWithContext(context.Background(), c)
+}
+
+// ListServicesWithContext gets a service from a cluster honouring context cancellation.
+func ListServicesWithContext(ctx context.Context, c *cluster.Cluster) (svcList []*types.Service, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	getServicesURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return svcList, cluster.ErrParsingEndpoint
 	}
 	getServicesURL.Path = path.Join(getServicesURL.Path, servicesPath)
 
-	req, err := http.NewRequest(http.MethodGet, getServicesURL.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, getServicesURL.String(), nil)
 	if err != nil {
 		return svcList, cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return svcList, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return svcList, cluster.ErrSendingRequest
 	}
@@ -166,7 +188,12 @@ func RemoveService(c *cluster.Cluster, name string) error {
 		return cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}
@@ -204,10 +231,16 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 		return cluster.ErrMakingRequest
 	}
 
-	client := c.GetClient()
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
 	// Increase timeout to avoid errors due to daemonset execution
 	if svc.ImagePrefetch {
-		client = c.GetClient(400)
+		client, err = c.GetClientSafe(400)
+		if err != nil {
+			return err
+		}
 	}
 	res, err := client.Do(req)
 	if err != nil {
@@ -224,9 +257,21 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 
 // RunService invokes a service synchronously (a Serverless backend in the cluster is required)
 func RunService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
-
+	client := http.DefaultClient
+	if token == "" {
+		client, _ = c.GetClientSafe()
+		if reflect.TypeOf(client.Transport).String() == cluster.BASIC_AUTH {
+			svc, err := GetService(c, name)
+			if err != nil {
+				return nil, err
+			}
+			c.SetToken(client, svc.Token)
+		}
+	} else {
+		client = http.DefaultClient
+	}
 	var runServiceURL *url.URL
-	if token != "" {
+	if endpoint != "" {
 		runServiceURL, err = url.Parse(endpoint)
 	} else {
 		runServiceURL, err = url.Parse(c.Endpoint)
@@ -238,41 +283,14 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 	runServiceURL.Path = path.Join(runServiceURL.Path, runPath, name)
 	// Make the request
 	req, err := http.NewRequest(http.MethodPost, runServiceURL.String(), input)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	if err != nil {
 		return nil, cluster.ErrMakingRequest
 	}
 
-	var res *http.Response
-	if token != "" {
-		bearer := "Bearer " + strings.TrimSpace(token)
-		req.Header.Add("Authorization", bearer)
-
-		client := &http.Client{}
-		res, err = client.Do(req)
-	} else {
-
-		// Get the service
-		svc, err := GetService(c, name)
-		if err != nil {
-			return nil, err
-		}
-		// Add service's token if defined (OSCAR >= v2.2.0)
-		if svc.Token != "" {
-			bearer := "Bearer " + strings.TrimSpace(svc.Token)
-			req.Header.Add("Authorization", bearer)
-		}
-		// Update cluster client timeout
-		client := c.GetClient()
-		client.Timeout = time.Second * 300
-
-		// Update client transport to remove basic auth
-		client.Transport = &http.Transport{
-			// Enable/disable ssl verification
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: !c.SSLVerify},
-		}
-
-		res, err = client.Do(req)
-	}
+	res, err := client.Do(req)
 
 	if err != nil {
 		return nil, cluster.ErrSendingRequest
@@ -287,9 +305,22 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 
 // JobService invokes a service asynchronously
 func JobService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
+	client := http.DefaultClient
+	if token == "" {
+		client, _ = c.GetClientSafe()
+		if reflect.TypeOf(client.Transport).String() == "*cluster.basicAuthRoundTripper" {
+			svc, err := GetService(c, name)
+			if err != nil {
+				return nil, err
+			}
+			c.SetToken(client, svc.Token)
+		}
+	} else {
+		client = http.DefaultClient
+	}
 
 	var jobServiceURL *url.URL
-	if token != "" {
+	if endpoint != "" {
 		jobServiceURL, err = url.Parse(endpoint)
 	} else {
 		jobServiceURL, err = url.Parse(c.Endpoint)
@@ -301,41 +332,13 @@ func JobService(c *cluster.Cluster, name string, token string, endpoint string, 
 	jobServiceURL.Path = path.Join(jobServiceURL.Path, jobPath, name)
 	// Make the request
 	req, err := http.NewRequest(http.MethodPost, jobServiceURL.String(), input)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	if err != nil {
 		return nil, cluster.ErrMakingRequest
 	}
-
-	var res *http.Response
-	if token != "" {
-		bearer := "Bearer " + strings.TrimSpace(token)
-		req.Header.Add("Authorization", bearer)
-
-		client := &http.Client{}
-		res, err = client.Do(req)
-	} else {
-
-		// Get the service
-		svc, err := GetService(c, name)
-		if err != nil {
-			return nil, err
-		}
-		// Add service's token if defined (OSCAR >= v2.2.0)
-		if svc.Token != "" {
-			bearer := "Bearer " + strings.TrimSpace(svc.Token)
-			req.Header.Add("Authorization", bearer)
-		}
-		// Update cluster client timeout
-		client := c.GetClient()
-		client.Timeout = time.Second * 300
-
-		// Update client transport to remove basic auth
-		client.Transport = &http.Transport{
-			// Enable/disable ssl verification
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: !c.SSLVerify},
-		}
-
-		res, err = client.Do(req)
-	}
+	res, err := client.Do(req)
 
 	if err != nil {
 		return nil, cluster.ErrSendingRequest

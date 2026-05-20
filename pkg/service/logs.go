@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -28,21 +29,15 @@ import (
 	"time"
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 const logsPath = "/system/logs"
 
-type JobsResponse struct {
-	Jobs         map[string]*types.JobInfo `json:"jobs"`
-	NextPage     string                    `json:"next_page,omitempty"`
-	RemainingJob *int64                    `json:"remaining_jobs,omitempty"`
-}
-
 var ErrNoLogsFound = errors.New("service has no logs")
 
 // ListLogs returns a map with all the available logs from the given service
-func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse, err error) {
+func ListLogs(c *cluster.Cluster, name string, page string) (logMap types.JobsResponse, err error) {
 	listLogsURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return logMap, cluster.ErrParsingEndpoint
@@ -56,7 +51,12 @@ func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse
 		return logMap, cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return logMap, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return logMap, cluster.ErrSendingRequest
 	}
@@ -71,7 +71,7 @@ func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse
 		return logMap, err
 	}
 	jobs := map[string]*types.JobInfo{}
-	jobsResponse := JobsResponse{}
+	jobsResponse := types.JobsResponse{}
 	// Try to decode the response body into the jobsResponse
 	err = json.NewDecoder(bytes.NewReader(body)).Decode(&jobsResponse)
 	if err != nil {
@@ -86,7 +86,7 @@ func ListLogs(c *cluster.Cluster, name string, page string) (logMap JobsResponse
 		if _, ok := jobs["jobs"]; ok {
 			return jobsResponse, err
 		} else {
-			jobsResponse = JobsResponse{Jobs: jobs, NextPage: "", RemainingJob: nil}
+			jobsResponse = types.JobsResponse{Jobs: jobs, NextPage: "", RemainingJob: nil}
 			return jobsResponse, err
 		}
 
@@ -114,7 +114,12 @@ func GetLogs(c *cluster.Cluster, svcName string, jobName string, timestamps bool
 		return logs, cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return logs, err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return logs, cluster.ErrSendingRequest
 	}
@@ -128,6 +133,52 @@ func GetLogs(c *cluster.Cluster, svcName string, jobName string, timestamps bool
 	byteLogs, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		return logs, err
+	}
+
+	return string(byteLogs), nil
+}
+
+// GetSystemLogs gets the OSCAR manager logs (Basic Auth only).
+func GetSystemLogs(c *cluster.Cluster, timestamps bool, previous bool) (string, error) {
+	getLogsURL, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return "", cluster.ErrParsingEndpoint
+	}
+	getLogsURL.Path = path.Join(getLogsURL.Path, logsPath)
+
+	q := getLogsURL.Query()
+	if timestamps {
+		q.Set("timestamps", "true")
+	}
+	if previous {
+		q.Set("previous", "true")
+	}
+	getLogsURL.RawQuery = q.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, getLogsURL.String(), nil)
+	if err != nil {
+		return "", cluster.ErrMakingRequest
+	}
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return "", err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return "", cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return "", err
+	}
+	fmt.Println(res.StatusCode)
+
+	byteLogs, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
 	}
 
 	return string(byteLogs), nil
@@ -204,7 +255,12 @@ func RemoveLog(c *cluster.Cluster, svcName, jobName string) error {
 		return cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}
@@ -236,7 +292,12 @@ func RemoveLogs(c *cluster.Cluster, svcName string, all bool) error {
 		return cluster.ErrMakingRequest
 	}
 
-	res, err := c.GetClient().Do(req)
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
 	if err != nil {
 		return cluster.ErrSendingRequest
 	}

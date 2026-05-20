@@ -89,10 +89,10 @@ func checkServiceLogsRemoveArgs(cmd *cobra.Command, args []string) error {
 
 func makeServiceLogsRemoveCmd() *cobra.Command {
 	serviceLogsRemoveCmd := &cobra.Command{
-		Use:     "remove SERVICE_NAME {JOB_NAME... | --succeeded | --all}",
-		Short:   "Remove a service's job along with its logs",
+		Use:     "delete SERVICE_NAME {JOB_NAME... | --succeeded | --all}",
+		Short:   "Delete a service's job along with its logs",
 		Args:    checkServiceLogsRemoveArgs,
-		Aliases: []string{"rm"},
+		Aliases: []string{"d", "del", "remove", "rm"},
 		RunE:    serviceLogsRemoveFunc,
 	}
 

@@ -24,7 +24,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/service"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -111,7 +111,7 @@ func makeDeleteCmd() *cobra.Command {
 		Use:     "delete FDL_FILE",
 		Short:   "Delete a FDL file to create or edit services in clusters",
 		Args:    cobra.ExactArgs(1),
-		Aliases: []string{"d"},
+		Aliases: []string{"d", "del", "remove", "rm"},
 		RunE:    deleteFunc,
 	}
 
