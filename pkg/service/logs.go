@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -132,6 +133,52 @@ func GetLogs(c *cluster.Cluster, svcName string, jobName string, timestamps bool
 	byteLogs, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		return logs, err
+	}
+
+	return string(byteLogs), nil
+}
+
+// GetSystemLogs gets the OSCAR manager logs (Basic Auth only).
+func GetSystemLogs(c *cluster.Cluster, timestamps bool, previous bool) (string, error) {
+	getLogsURL, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return "", cluster.ErrParsingEndpoint
+	}
+	getLogsURL.Path = path.Join(getLogsURL.Path, logsPath)
+
+	q := getLogsURL.Query()
+	if timestamps {
+		q.Set("timestamps", "true")
+	}
+	if previous {
+		q.Set("previous", "true")
+	}
+	getLogsURL.RawQuery = q.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, getLogsURL.String(), nil)
+	if err != nil {
+		return "", cluster.ErrMakingRequest
+	}
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return "", err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return "", cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return "", err
+	}
+	fmt.Println(res.StatusCode)
+
+	byteLogs, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
 	}
 
 	return string(byteLogs), nil
