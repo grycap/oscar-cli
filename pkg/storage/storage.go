@@ -17,6 +17,7 @@ limitations under the License.
 package storage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -515,6 +516,168 @@ func DeleteBucket(c *cluster.Cluster, name string) error {
 	}
 
 	return nil
+}
+
+// CreateBucket creates a new bucket in the cluster.
+func CreateBucket(c *cluster.Cluster, name, visibility string, allowedUsers []string) error {
+	if c == nil {
+		return errors.New("cluster configuration not provided")
+	}
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return errors.New("bucket name is required")
+	}
+
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return cluster.ErrParsingEndpoint
+	}
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets")
+
+	payload := map[string]interface{}{
+		"name": trimmed,
+	}
+	if visibility != "" {
+		payload["visibility"] = visibility
+	}
+	if len(allowedUsers) > 0 {
+		payload["allowed_users"] = allowedUsers
+	}
+
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("cannot encode bucket request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, endpoint.String(), bytes.NewReader(bodyBytes))
+	if err != nil {
+		return cluster.ErrMakingRequest
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	return cluster.CheckStatusCode(res)
+}
+
+// UpdateBucket updates a bucket's visibility and allowed users.
+func UpdateBucket(c *cluster.Cluster, name, visibility string, allowedUsers []string) error {
+	if c == nil {
+		return errors.New("cluster configuration not provided")
+	}
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return errors.New("bucket name is required")
+	}
+
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return cluster.ErrParsingEndpoint
+	}
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmed)
+
+	payload := map[string]interface{}{}
+	if visibility != "" {
+		payload["visibility"] = visibility
+	}
+	if len(allowedUsers) > 0 {
+		payload["allowed_users"] = allowedUsers
+	}
+
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("cannot encode bucket request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPut, endpoint.String(), bytes.NewReader(bodyBytes))
+	if err != nil {
+		return cluster.ErrMakingRequest
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	return cluster.CheckStatusCode(res)
+}
+
+// PresignBucket generates a presigned URL for a file in a bucket.
+func PresignBucket(c *cluster.Cluster, bucketName, fileName string, expires int) (string, error) {
+	if c == nil {
+		return "", errors.New("cluster configuration not provided")
+	}
+	trimmedBucket := strings.TrimSpace(bucketName)
+	if trimmedBucket == "" {
+		return "", errors.New("bucket name is required")
+	}
+	trimmedFile := strings.TrimSpace(fileName)
+	if trimmedFile == "" {
+		return "", errors.New("file name is required")
+	}
+
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return "", cluster.ErrParsingEndpoint
+	}
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmedBucket, "presign", trimmedFile)
+
+	query := endpoint.Query()
+	if expires > 0 {
+		query.Set("expires", strconv.Itoa(expires))
+	}
+	endpoint.RawQuery = query.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return "", cluster.ErrMakingRequest
+	}
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return "", err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return "", cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return "", err
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var result struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		// Try plain text response
+		return strings.TrimSpace(string(body)), nil
+	}
+
+	return result.URL, nil
 }
 
 func defaultProviderLabel(provider string) string {
