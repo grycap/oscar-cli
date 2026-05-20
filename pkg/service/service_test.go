@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 func TestReadFDL(t *testing.T) {
@@ -33,6 +33,9 @@ functions:
         script: script.sh
         cpu: 100m
         memory: 256Mi
+        volume:
+          size: 10Gi
+          mount_path: /data
 `
 	if err := os.WriteFile(fdlPath, []byte(content), 0o600); err != nil {
 		t.Fatalf("writing fdl: %v", err)
@@ -54,6 +57,15 @@ functions:
 	}
 	if !strings.Contains(svc.Script, "echo hi") {
 		t.Fatalf("expected embedded script content, got %q", svc.Script)
+	}
+	if svc.Volume == nil {
+		t.Fatalf("expected volume config to be preserved")
+	}
+	if svc.Volume.Size != "10Gi" {
+		t.Fatalf("expected volume size 10Gi, got %s", svc.Volume.Size)
+	}
+	if svc.Volume.MountPath != "/data" {
+		t.Fatalf("expected volume mount path /data, got %s", svc.Volume.MountPath)
 	}
 }
 
@@ -114,12 +126,27 @@ func TestApplyService(t *testing.T) {
 		SSLVerify:    true,
 	}
 
-	err := ApplyService(&types.Service{Name: serviceName}, c, http.MethodPost)
+	err := ApplyService(&types.Service{
+		Name: serviceName,
+		Volume: &types.ServiceVolumeConfig{
+			Size:      "10Gi",
+			MountPath: "/data",
+		},
+	}, c, http.MethodPost)
 	if err != nil {
 		t.Fatalf("ApplyService returned error: %v", err)
 	}
 	if received.Name != serviceName {
 		t.Fatalf("expected service name %s, got %s", serviceName, received.Name)
+	}
+	if received.Volume == nil {
+		t.Fatalf("expected volume config in applied service")
+	}
+	if received.Volume.Size != "10Gi" {
+		t.Fatalf("expected applied volume size 10Gi, got %s", received.Volume.Size)
+	}
+	if received.Volume.MountPath != "/data" {
+		t.Fatalf("expected applied volume mount path /data, got %s", received.Volume.MountPath)
 	}
 }
 

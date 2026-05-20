@@ -11,7 +11,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/grycap/oscar-cli/pkg/service"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 func (s *uiState) markServicePanelVisited() {
@@ -136,9 +136,14 @@ func (s *uiState) loadServices(ctx context.Context, name string, force bool) {
 	}
 
 	s.setStatus(fmt.Sprintf("[yellow]Loading services for cluster %s…", name))
-	s.queueUpdate(func() {
-		s.showServiceMessage("Loading…")
-	})
+	s.mutex.Lock()
+	keepTable := force && s.currentCluster == name && len(s.currentServices) > 0
+	s.mutex.Unlock()
+	if !keepTable {
+		s.queueUpdate(func() {
+			s.showServiceMessage("Loading…")
+		})
+	}
 
 	s.mutex.Lock()
 	if s.refreshing && !force && s.loadingCluster == name {

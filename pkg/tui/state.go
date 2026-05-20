@@ -9,7 +9,7 @@ import (
 
 	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/storage"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 const legendText = `[yellow]Navigation[-]
@@ -19,7 +19,7 @@ const legendText = `[yellow]Navigation[-]
 
 [yellow]Actions[-]
   r  Refresh current view
-  d  Delete selected item
+  d or Del  Delete selected service/bucket
   i  Show cluster info
   l  Open logs panel
   w  Configure auto refresh
@@ -32,7 +32,7 @@ const legendText = `[yellow]Navigation[-]
   q  Quit
   ?  Toggle this help`
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type panelMode int
 
@@ -122,6 +122,7 @@ type uiState struct {
 	currentLogJobKey         string
 	currentLogService        string
 	currentLogCluster        string
+	inputHandling            int32
 }
 
 type bucketObjectState struct {

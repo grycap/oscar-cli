@@ -326,6 +326,9 @@ func (c *ROCrate) parseStructuredSteps(testID string, node map[string]interface{
 
 			if parsedCmd, ok := c.buildParsedCommand(paMap, step.Inputs); ok {
 				step.ParsedCommand = parsedCmd
+				if strings.TrimSpace(step.Command) == "" {
+					step.Command = describeParsedCommand(*parsedCmd)
+				}
 			}
 		} else if duration := strings.TrimSpace(readString(stepMap, "timeRequired")); duration != "" {
 			if parsedCmd, err := buildWaitCommand(duration); err == nil {
@@ -458,6 +461,27 @@ func (c *ROCrate) buildParsedCommand(action map[string]interface{}, inputs []Tes
 			Kind:            stepCommandGetFile,
 			LatestRequested: strings.Contains(template, "--download-latest-into"),
 		}, true
+	case "http-request", "exposed-http", "http":
+		method := strings.ToUpper(strings.TrimSpace(c.propertyValue(action["additionalProperty"], "method")))
+		if method == "" {
+			method = "GET"
+		}
+		requestPath := strings.TrimSpace(c.propertyValue(action["additionalProperty"], "path"))
+		if requestPath == "" {
+			requestPath = strings.TrimSpace(c.propertyValue(action["target"], "urlTemplate"))
+		}
+		if requestPath == "" {
+			return nil, false
+		}
+		return &parsedCommand{
+			Kind:               stepCommandHTTP,
+			HTTPMethod:         method,
+			HTTPPath:           requestPath,
+			HTTPAccept:         strings.TrimSpace(c.propertyValue(action["additionalProperty"], "accept")),
+			HTTPFormField:      firstNonEmpty(strings.TrimSpace(c.propertyValue(action["additionalProperty"], "formField")), "file"),
+			HTTPUseServiceAuth: !strings.EqualFold(strings.TrimSpace(c.propertyValue(action["additionalProperty"], "auth")), "none"),
+			HTTPExpectStatus:   parseStatusOrDefault(c.propertyValue(action["additionalProperty"], "status"), 200),
+		}, true
 	}
 
 	if strings.Contains(template, "service run") {
@@ -477,6 +501,11 @@ func (c *ROCrate) buildParsedCommand(action map[string]interface{}, inputs []Tes
 			Kind:            stepCommandGetFile,
 			LatestRequested: strings.Contains(template, "--download-latest-into"),
 		}, true
+	}
+	if strings.Contains(strings.ToLower(template), "service http") {
+		if parsedCmd, err := parseAcceptanceCommand(template); err == nil {
+			return &parsedCmd, true
+		}
 	}
 
 	return nil, false
@@ -508,6 +537,22 @@ func (c *ROCrate) commandTemplate(raw interface{}) string {
 	nodes := c.propertyNodes(raw)
 	for _, node := range nodes {
 		if propertyID := strings.TrimSpace(readString(node, "propertyID")); strings.EqualFold(propertyID, "commandTemplate") {
+			if value := strings.TrimSpace(readString(node, "value")); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func (c *ROCrate) propertyValue(raw interface{}, propertyID string) string {
+	propertyID = strings.TrimSpace(propertyID)
+	if propertyID == "" {
+		return ""
+	}
+	nodes := c.propertyNodes(raw)
+	for _, node := range nodes {
+		if strings.EqualFold(strings.TrimSpace(readString(node, "propertyID")), propertyID) {
 			if value := strings.TrimSpace(readString(node, "value")); value != "" {
 				return value
 			}
@@ -583,6 +628,39 @@ func parsePosition(value interface{}) int {
 		}
 	}
 	return 0
+}
+
+func parseStatusOrDefault(raw string, fallback int) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func describeParsedCommand(cmd parsedCommand) string {
+	switch cmd.Kind {
+	case stepCommandRun:
+		return "service run"
+	case stepCommandPutFile:
+		return "service put-file"
+	case stepCommandGetFile:
+		return "service get-file"
+	case stepCommandWait:
+		return fmt.Sprintf("wait %s", cmd.WaitDuration)
+	case stepCommandHTTP:
+		method := strings.TrimSpace(cmd.HTTPMethod)
+		if method == "" {
+			method = "GET"
+		}
+		return fmt.Sprintf("service http %s %s", method, strings.TrimSpace(cmd.HTTPPath))
+	default:
+		return ""
+	}
 }
 
 func buildWaitCommand(raw string) (*parsedCommand, error) {

@@ -7,7 +7,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -120,150 +122,10 @@ func Run(ctx context.Context, conf *config.Config) error {
 	app.SetRoot(pages, true)
 	app.SetFocus(state.clusterList)
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if state.searchVisible {
-			if event.Key() == tcell.KeyEsc {
-				state.hideSearch()
-				return nil
-			}
-			return event
-		}
-		if state.autoRefreshPromptVisible {
-			if event.Key() == tcell.KeyEsc {
-				state.hideAutoRefreshPrompt()
-				return nil
-			}
-			return event
-		}
-
-		switch event.Key() {
-		case tcell.KeyTab:
-			if app.GetFocus() == state.clusterList {
-				if state.modeIsServices() {
-					state.markServicePanelVisited()
-				}
-				app.SetFocus(state.serviceTable)
-			} else if state.modeIsBuckets() && app.GetFocus() == state.serviceTable {
-				state.focusBucketObjectsTable()
-			} else {
-				app.SetFocus(state.clusterList)
-			}
-			return nil
-		case tcell.KeyRight:
-			if app.GetFocus() == state.clusterList {
-				if state.modeIsServices() {
-					state.markServicePanelVisited()
-				}
-				app.SetFocus(state.serviceTable)
-				return nil
-			}
-			if state.modeIsBuckets() && app.GetFocus() == state.serviceTable {
-				state.focusBucketObjectsTable()
-				return nil
-			}
-		case tcell.KeyLeft:
-			if app.GetFocus() == state.serviceTable {
-				app.SetFocus(state.clusterList)
-				return nil
-			}
-			if app.GetFocus() == state.bucketObjectsTable {
-				app.SetFocus(state.serviceTable)
-				return nil
-			}
-		case tcell.KeyBacktab:
-			if app.GetFocus() == state.serviceTable {
-				app.SetFocus(state.clusterList)
-				return nil
-			}
-			if app.GetFocus() == state.bucketObjectsTable {
-				app.SetFocus(state.serviceTable)
-				return nil
-			}
-		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			if app.GetFocus() == state.detailsView {
-				app.SetFocus(state.serviceTable)
-				return nil
-			}
-			if app.GetFocus() == state.serviceTable {
-				state.switchToServices(ctx)
-				return nil
-			}
-		case tcell.KeyEnter:
-			if app.GetFocus() == state.serviceTable {
-				state.switchToLogs(ctx)
-				return nil
-			}
-		}
-
-		switch event.Rune() {
-		case 'q', 'Q':
-			app.Stop()
-			return nil
-		case 'r':
-			state.refreshCurrent(ctx)
-			return nil
-		case 'w', 'W':
-			state.promptAutoRefresh()
-			return nil
-		case 'b', 'B':
-			state.switchToBuckets(ctx)
-			return nil
-		case 's', 'S':
-			state.switchToServices(ctx)
-			return nil
-		case 'o', 'O':
-			if state.modeIsBuckets() {
-				state.reloadBucketObjects(ctx)
-				state.focusBucketObjectsTable()
-				return nil
-			}
-		case 'n', 'N':
-			if state.modeIsBuckets() {
-				state.nextBucketObjectsPage(ctx)
-				return nil
-			}
-		case 'p', 'P':
-			if state.modeIsBuckets() {
-				state.previousBucketObjectsPage(ctx)
-				return nil
-			}
-		case 'a', 'A':
-			if state.modeIsBuckets() {
-				state.loadAllBucketObjects(ctx)
-				return nil
-			}
-		case 'd', 'D':
-			if app.GetFocus() == state.serviceTable && state.modeIsServices() {
-				state.requestDeletion()
-				return nil
-			}
-		case 'v', 'V':
-			state.queueUpdate(func() {
-				if state.app.GetFocus() != state.detailsView {
-					state.app.SetFocus(state.detailsView)
-				} else {
-					state.app.SetFocus(state.serviceTable)
-				}
-			})
-			return nil
-		case 'l', 'L':
-			if app.GetFocus() == state.serviceTable {
-				state.switchToLogs(ctx)
-				return nil
-			}
-		case '?':
-			state.toggleLegend()
-			return nil
-		case 'i', 'I':
-			state.showClusterInfo()
-			return nil
-		case 't', 'T':
-			state.showClusterStatus()
-			return nil
-		case '/':
-			state.initiateSearch(ctx)
+		if state.handleNavigationKey(event) {
 			return nil
 		}
-		return event
+		return state.safeInputCapture(ctx, event)
 	})
 
 	go func() {
@@ -296,6 +158,110 @@ func Run(ctx context.Context, conf *config.Config) error {
 	}
 	state.stopAutoRefresh()
 	return nil
+}
+
+func (s *uiState) handleNavigationKey(event *tcell.EventKey) bool {
+	if event == nil {
+		return false
+	}
+	if s.searchVisible || s.autoRefreshPromptVisible || s.confirmVisible || s.legendVisible {
+		return false
+	}
+
+	delta := 0
+	absolute := 0
+	absoluteSet := false
+	switch event.Key() {
+	case tcell.KeyUp:
+		delta = -1
+	case tcell.KeyDown:
+		delta = 1
+	case tcell.KeyPgUp:
+		delta = -10
+	case tcell.KeyPgDn:
+		delta = 10
+	case tcell.KeyHome:
+		absolute = 0
+		absoluteSet = true
+	case tcell.KeyEnd:
+		absolute = -1
+		absoluteSet = true
+	default:
+		return false
+	}
+
+	focus := s.app.GetFocus()
+	switch focus {
+	case s.clusterList:
+		return s.navigateClusterList(delta, absolute, absoluteSet)
+	case s.serviceTable:
+		return s.navigateTableRows(s.serviceTable, delta, absolute, absoluteSet)
+	case s.bucketObjectsTable:
+		return s.navigateTableRows(s.bucketObjectsTable, delta, absolute, absoluteSet)
+	default:
+		return false
+	}
+}
+
+func (s *uiState) navigateClusterList(delta, absolute int, absoluteSet bool) bool {
+	total := len(s.clusterNames)
+	if total <= 0 {
+		return true
+	}
+	current := s.clusterList.GetCurrentItem()
+	if current < 0 {
+		current = 0
+	}
+	target := current
+	if absoluteSet {
+		if absolute < 0 {
+			target = total - 1
+		} else {
+			target = absolute
+		}
+	} else {
+		target += delta
+	}
+	if target < 0 {
+		target = 0
+	}
+	if target >= total {
+		target = total - 1
+	}
+	s.clusterList.SetCurrentItem(target)
+	return true
+}
+
+func (s *uiState) navigateTableRows(table *tview.Table, delta, absolute int, absoluteSet bool) bool {
+	if table == nil {
+		return false
+	}
+	rowCount := table.GetRowCount()
+	if rowCount <= 1 {
+		return true
+	}
+	row, col := table.GetSelection()
+	if row < 1 {
+		row = 1
+	}
+	target := row
+	if absoluteSet {
+		if absolute < 0 {
+			target = rowCount - 1
+		} else {
+			target = absolute + 1
+		}
+	} else {
+		target += delta
+	}
+	if target < 1 {
+		target = 1
+	}
+	if target >= rowCount {
+		target = rowCount - 1
+	}
+	table.Select(target, col)
+	return true
 }
 
 func (s *uiState) selectCluster(ctx context.Context, name string) {
@@ -476,6 +442,173 @@ func (s *uiState) handleSelection(row int, immediate bool) {
 		return
 	}
 	s.handleServiceSelection(row, immediate)
+}
+
+func (s *uiState) safeInputCapture(ctx context.Context, event *tcell.EventKey) *tcell.EventKey {
+	if event == nil {
+		return nil
+	}
+	// Filter out non-printable runes early to avoid edge cases in tview.
+	if event.Key() == tcell.KeyRune && !unicode.IsPrint(event.Rune()) {
+		return nil
+	}
+	if !atomic.CompareAndSwapInt32(&s.inputHandling, 0, 1) {
+		return nil
+	}
+	defer atomic.StoreInt32(&s.inputHandling, 0)
+	defer func() {
+		if r := recover(); r != nil {
+			// Ignore panics from input handling to keep the UI responsive.
+		}
+	}()
+	return s.handleInput(ctx, event)
+}
+
+func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell.EventKey {
+	if s.searchVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideSearch()
+			return nil
+		}
+		return event
+	}
+	if s.autoRefreshPromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideAutoRefreshPrompt()
+			return nil
+		}
+		return event
+	}
+
+	switch event.Key() {
+	case tcell.KeyTab:
+		if s.app.GetFocus() == s.clusterList {
+			if s.modeIsServices() {
+				s.markServicePanelVisited()
+			}
+			s.app.SetFocus(s.serviceTable)
+		} else if s.modeIsBuckets() && s.app.GetFocus() == s.serviceTable {
+			s.focusBucketObjectsTable()
+		} else {
+			s.app.SetFocus(s.clusterList)
+		}
+		return nil
+	case tcell.KeyRight:
+		if s.app.GetFocus() == s.clusterList {
+			if s.modeIsServices() {
+				s.markServicePanelVisited()
+			}
+			s.app.SetFocus(s.serviceTable)
+			return nil
+		}
+		if s.modeIsBuckets() && s.app.GetFocus() == s.serviceTable {
+			s.focusBucketObjectsTable()
+			return nil
+		}
+	case tcell.KeyLeft:
+		if s.app.GetFocus() == s.serviceTable {
+			s.app.SetFocus(s.clusterList)
+			return nil
+		}
+		if s.app.GetFocus() == s.bucketObjectsTable {
+			s.app.SetFocus(s.serviceTable)
+			return nil
+		}
+	case tcell.KeyBacktab:
+		if s.app.GetFocus() == s.serviceTable {
+			s.app.SetFocus(s.clusterList)
+			return nil
+		}
+		if s.app.GetFocus() == s.bucketObjectsTable {
+			s.app.SetFocus(s.serviceTable)
+			return nil
+		}
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		if s.app.GetFocus() == s.detailsView {
+			s.app.SetFocus(s.serviceTable)
+			return nil
+		}
+		if s.app.GetFocus() == s.serviceTable {
+			s.switchToServices(ctx)
+			return nil
+		}
+	case tcell.KeyEnter:
+		if s.app.GetFocus() == s.serviceTable {
+			s.switchToLogs(ctx)
+			return nil
+		}
+	}
+
+	switch event.Rune() {
+	case 'q', 'Q':
+		s.app.Stop()
+		return nil
+	case 'r':
+		s.refreshCurrent(ctx)
+		return nil
+	case 'w', 'W':
+		s.promptAutoRefresh()
+		return nil
+	case 'b', 'B':
+		s.switchToBuckets(ctx)
+		return nil
+	case 's', 'S':
+		s.switchToServices(ctx)
+		return nil
+	case 'o', 'O':
+		if s.modeIsBuckets() {
+			s.reloadBucketObjects(ctx)
+			s.focusBucketObjectsTable()
+			return nil
+		}
+	case 'n', 'N':
+		if s.modeIsBuckets() {
+			s.nextBucketObjectsPage(ctx)
+			return nil
+		}
+	case 'p', 'P':
+		if s.modeIsBuckets() {
+			s.previousBucketObjectsPage(ctx)
+			return nil
+		}
+	case 'a', 'A':
+		if s.modeIsBuckets() {
+			s.loadAllBucketObjects(ctx)
+			return nil
+		}
+	case 'd', 'D':
+		if s.app.GetFocus() == s.serviceTable && s.modeIsServices() {
+			s.requestDeletion()
+			return nil
+		}
+	case 'v', 'V':
+		s.queueUpdate(func() {
+			if s.app.GetFocus() != s.detailsView {
+				s.app.SetFocus(s.detailsView)
+			} else {
+				s.app.SetFocus(s.serviceTable)
+			}
+		})
+		return nil
+	case 'l', 'L':
+		if s.app.GetFocus() == s.serviceTable {
+			s.switchToLogs(ctx)
+			return nil
+		}
+	case '?':
+		s.toggleLegend()
+		return nil
+	case 'i', 'I':
+		s.showClusterInfo()
+		return nil
+	case 't', 'T':
+		s.showClusterStatus()
+		return nil
+	case '/':
+		s.initiateSearch(ctx)
+		return nil
+	}
+	return event
 }
 
 func (s *uiState) queueUpdate(fn func()) {

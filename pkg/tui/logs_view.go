@@ -10,7 +10,7 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/grycap/oscar-cli/pkg/service"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 type logEntry struct {
@@ -98,6 +98,12 @@ func (s *uiState) loadLogs(ctx context.Context, clusterName, serviceName string,
 	if strings.TrimSpace(clusterName) == "" || strings.TrimSpace(serviceName) == "" {
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// Defensive timeout for long/looping pagination.
+	ctxFetch, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 
 	clusterCfg := s.conf.Oscar[clusterName]
 	if clusterCfg == nil {
@@ -125,20 +131,24 @@ func (s *uiState) loadLogs(ctx context.Context, clusterName, serviceName string,
 	s.currentLogsKey = key
 	s.currentLogService = serviceName
 	s.currentLogCluster = clusterName
-	s.logEntries = nil
+	if !force {
+		s.logEntries = nil
+	}
 	s.mutex.Unlock()
 
 	s.setStatus(fmt.Sprintf("[yellow]Loading logs for %q…", serviceName))
-	s.queueUpdate(func() {
-		s.showLogMessage(serviceName, "Loading logs…")
-	})
+	if !(force && cachedKey == key && len(cachedEntries) > 0) {
+		s.queueUpdate(func() {
+			s.showLogMessage(serviceName, "Loading logs…")
+		})
+	}
 
 	page := ""
 	entries := map[string]*types.JobInfo{}
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctxFetch.Done():
 			s.setStatus("[red]Log loading cancelled")
 			return
 		default:
