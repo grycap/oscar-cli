@@ -36,7 +36,10 @@ func metricsServiceFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	svcMetrics, err := cluster.GetServiceMetrics(conf.Oscar[clusterName], args[0])
+	start, _ := cmd.Flags().GetString("start")
+	end, _ := cmd.Flags().GetString("end")
+
+	svcMetrics, err := cluster.GetServiceMetrics(conf.Oscar[clusterName], args[0], start, end)
 	if err != nil {
 		return err
 	}
@@ -54,6 +57,7 @@ func makeMetricsServiceCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "service SERVICE_NAME",
 		Short:   "Show metrics for a specific service",
+		Long:    "Show metrics for a specific service. Use --start and --end to filter by time range.",
 		Aliases: []string{"svc"},
 		Args:    cobra.ExactArgs(1),
 		RunE:    metricsServiceFunc,

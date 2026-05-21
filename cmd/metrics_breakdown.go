@@ -37,8 +37,10 @@ func metricsBreakdownFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	groupBy, _ := cmd.Flags().GetString("group-by")
+	start, _ := cmd.Flags().GetString("start")
+	end, _ := cmd.Flags().GetString("end")
 
-	breakdown, err := cluster.GetMetricsBreakdown(conf.Oscar[clusterName], groupBy)
+	breakdown, err := cluster.GetMetricsBreakdown(conf.Oscar[clusterName], groupBy, start, end)
 	if err != nil {
 		return err
 	}
@@ -56,6 +58,7 @@ func makeMetricsBreakdownCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "breakdown",
 		Short:   "Show metrics breakdown",
+		Long:    "Show a breakdown of cluster metrics grouped by service, user or country. Use --start and --end to filter by time range.",
 		Aliases: []string{"bd"},
 		Args:    cobra.NoArgs,
 		RunE:    metricsBreakdownFunc,

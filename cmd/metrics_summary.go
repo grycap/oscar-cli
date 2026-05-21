@@ -36,7 +36,10 @@ func metricsSummaryFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	summary, err := cluster.GetMetricsSummary(conf.Oscar[clusterName])
+	start, _ := cmd.Flags().GetString("start")
+	end, _ := cmd.Flags().GetString("end")
+
+	summary, err := cluster.GetMetricsSummary(conf.Oscar[clusterName], start, end)
 	if err != nil {
 		return err
 	}
@@ -54,6 +57,7 @@ func makeMetricsSummaryCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "summary",
 		Short:   "Show metrics summary",
+		Long:    "Show a summary of cluster metrics. Use --start and --end to filter by time range.",
 		Aliases: []string{"sum"},
 		Args:    cobra.NoArgs,
 		RunE:    metricsSummaryFunc,

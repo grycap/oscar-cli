@@ -29,7 +29,7 @@ import (
 const metricsPath = "/system/metrics"
 
 // GetMetricsSummary returns the metrics summary for the cluster.
-func GetMetricsSummary(c *Cluster) (*types.MetricsSummaryResponse, error) {
+func GetMetricsSummary(c *Cluster, start, end string) (*types.MetricsSummaryResponse, error) {
 	if c == nil {
 		return nil, errors.New("cluster configuration not provided")
 	}
@@ -38,7 +38,16 @@ func GetMetricsSummary(c *Cluster) (*types.MetricsSummaryResponse, error) {
 	if err != nil {
 		return nil, ErrParsingEndpoint
 	}
-	endpoint.Path = path.Join(endpoint.Path, metricsPath, "summary")
+	endpoint.Path = path.Join(endpoint.Path, metricsPath)
+
+	query := endpoint.Query()
+	if start != "" {
+		query.Set("start", start)
+	}
+	if end != "" {
+		query.Set("end", end)
+	}
+	endpoint.RawQuery = query.Encode()
 
 	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
 	if err != nil {
@@ -69,7 +78,7 @@ func GetMetricsSummary(c *Cluster) (*types.MetricsSummaryResponse, error) {
 }
 
 // GetMetricsBreakdown returns the metrics breakdown grouped by the specified key.
-func GetMetricsBreakdown(c *Cluster, groupBy string) (*types.MetricsBreakdownResponse, error) {
+func GetMetricsBreakdown(c *Cluster, groupBy, start, end string) (*types.MetricsBreakdownResponse, error) {
 	if c == nil {
 		return nil, errors.New("cluster configuration not provided")
 	}
@@ -83,6 +92,12 @@ func GetMetricsBreakdown(c *Cluster, groupBy string) (*types.MetricsBreakdownRes
 	query := endpoint.Query()
 	if groupBy != "" {
 		query.Set("group_by", groupBy)
+	}
+	if start != "" {
+		query.Set("start", start)
+	}
+	if end != "" {
+		query.Set("end", end)
 	}
 	endpoint.RawQuery = query.Encode()
 
@@ -115,7 +130,7 @@ func GetMetricsBreakdown(c *Cluster, groupBy string) (*types.MetricsBreakdownRes
 }
 
 // GetServiceMetrics returns the metrics for a specific service.
-func GetServiceMetrics(c *Cluster, serviceName string) (*types.ServiceMetricsResponse, error) {
+func GetServiceMetrics(c *Cluster, serviceName, start, end string) (*types.ServiceMetricsResponse, error) {
 	if c == nil {
 		return nil, errors.New("cluster configuration not provided")
 	}
@@ -127,7 +142,16 @@ func GetServiceMetrics(c *Cluster, serviceName string) (*types.ServiceMetricsRes
 	if err != nil {
 		return nil, ErrParsingEndpoint
 	}
-	endpoint.Path = path.Join(endpoint.Path, metricsPath, "service", serviceName)
+	endpoint.Path = path.Join(endpoint.Path, metricsPath, serviceName)
+
+	query := endpoint.Query()
+	if start != "" {
+		query.Set("start", start)
+	}
+	if end != "" {
+		query.Set("end", end)
+	}
+	endpoint.RawQuery = query.Encode()
 
 	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
 	if err != nil {

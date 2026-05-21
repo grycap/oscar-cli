@@ -28,12 +28,20 @@ func makeMetricsCmd() *cobra.Command {
 	metricsCmd := &cobra.Command{
 		Use:   "metrics",
 		Short: "Show cluster metrics",
-		Args:  cobra.NoArgs,
-		Run:   metricsFunc,
+		Long: `Show cluster metrics. Use --start and --end to filter by time range.
+
+Available subcommands:
+  summary   Show metrics summary
+  breakdown Show metrics breakdown (grouped by service, user or country)
+  service   Show metrics for a specific service`,
+		Args: cobra.NoArgs,
+		Run:  metricsFunc,
 	}
 
 	metricsCmd.PersistentFlags().StringP("cluster", "c", "", "set the cluster")
 	metricsCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
+	metricsCmd.PersistentFlags().String("start", "", "start time (RFC3339 format)")
+	metricsCmd.PersistentFlags().String("end", "", "end time (RFC3339 format)")
 
 	metricsCmd.AddCommand(makeMetricsSummaryCmd())
 	metricsCmd.AddCommand(makeMetricsBreakdownCmd())
