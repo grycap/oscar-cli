@@ -34,7 +34,7 @@ func serviceDeleteFileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	err = storage.DeleteFile(conf.Oscar[cluster], args[0], args[1], args[2])
+	err = storage.DeleteFileWithService(conf.Oscar[cluster], args[0], args[1], args[2])
 	if err != nil {
 		return err
 	}

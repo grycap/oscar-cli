@@ -39,6 +39,9 @@ func makeBucketCmd() *cobra.Command {
 	bucketCmd.AddCommand(makeBucketCreateCmd())
 	bucketCmd.AddCommand(makeBucketUpdateCmd())
 	bucketCmd.AddCommand(makeBucketPresignCmd())
+	bucketCmd.AddCommand(makeBucketPutFileCmd())
+	bucketCmd.AddCommand(makeBucketDeleteCmd())
+	bucketCmd.AddCommand(makeBucketDeleteFileCmd())
 
 	return bucketCmd
 }

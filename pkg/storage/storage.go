@@ -535,7 +535,7 @@ func CreateBucket(c *cluster.Cluster, name, visibility string, allowedUsers []st
 	endpoint.Path = path.Join(endpoint.Path, "system", "buckets")
 
 	payload := map[string]interface{}{
-		"name": trimmed,
+		"bucket_name": trimmed,
 	}
 	if visibility != "" {
 		payload["visibility"] = visibility
@@ -1002,20 +1002,17 @@ func ResolveLatestRemotePath(c *cluster.Cluster, svc *types.Service, providerStr
 }
 
 // PutFile uploads a file to a storage provider
-func PutFile(c *cluster.Cluster, svcName, providerString, localPath, remotePath string, opt *TransferOption) error {
-	svc, err := service.GetService(c, svcName)
+func PutFile(c *cluster.Cluster, providerString, localPath, remotePath string, opt *TransferOption) error {
+
+	dataprovider, err := getProvider(c, providerString, nil)
 	if err != nil {
 		return err
 	}
-	return putFile(c, svc, providerString, localPath, remotePath, opt)
+	return putFile(c, dataprovider, localPath, remotePath, opt)
 }
 
 // PutFileWithService uploads a file using a pre-fetched service definition.
 func PutFileWithService(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string, opt *TransferOption) error {
-	return putFile(c, svc, providerString, localPath, remotePath, opt)
-}
-
-func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string, opt *TransferOption) error {
 	if svc == nil {
 		return errors.New("service definition not provided")
 	}
@@ -1024,6 +1021,18 @@ func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, 
 	if err != nil {
 		return err
 	}
+	return putFile(c, prov, localPath, remotePath, opt)
+}
+
+func putFile(c *cluster.Cluster, prov interface{}, localPath, remotePath string, opt *TransferOption) error {
+	/*if svc == nil {
+		return errors.New("service definition not provided")
+	}
+
+	prov, err := getProvider(c, providerString, svc.StorageProviders)
+	if err != nil {
+		return err
+	}*/
 
 	file, err := os.Open(localPath)
 	if err != nil {
@@ -1089,7 +1098,7 @@ func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, 
 }
 
 // DeleteFile uploads a file to a storage provider
-func DeleteFile(c *cluster.Cluster, svcName, providerString, remotePath string) error {
+func DeleteFileWithService(c *cluster.Cluster, svcName, providerString, remotePath string) error {
 	// Get the service definition
 	svc, err := service.GetService(c, svcName)
 	if err != nil {
@@ -1101,7 +1110,17 @@ func DeleteFile(c *cluster.Cluster, svcName, providerString, remotePath string) 
 	if err != nil {
 		return err
 	}
+	return deleteFile(c, prov, remotePath)
+}
 
+func DeleteFile(c *cluster.Cluster, providerString, remotePath string) error {
+	dataprovider, err := getProvider(c, providerString, nil)
+	if err != nil {
+		return err
+	}
+	return deleteFile(c, dataprovider, remotePath)
+}
+func deleteFile(c *cluster.Cluster, prov interface{}, remotePath string) error {
 	remotePath = strings.Trim(remotePath, " /")
 	// Split buckets and folders from remotePath
 	splitPath := strings.SplitN(remotePath, "/", 2)

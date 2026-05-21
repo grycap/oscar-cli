@@ -64,7 +64,7 @@ func makeBucketCreateCmd() *cobra.Command {
 		RunE:  bucketCreateFunc,
 	}
 
-	cmd.Flags().String("visibility", "", "bucket visibility (public, private)")
+	cmd.Flags().String("visibility", "", "bucket visibility (public, private and restricted)")
 	cmd.Flags().String("allowed-users", "", "comma-separated list of allowed users")
 
 	return cmd
