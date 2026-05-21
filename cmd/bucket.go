@@ -31,10 +31,17 @@ func makeBucketCmd() *cobra.Command {
 		Run:     bucketFunc,
 	}
 
+	bucketCmd.PersistentFlags().StringP("cluster", "c", "", "set the cluster")
 	bucketCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
 
 	bucketCmd.AddCommand(makeBucketGetCmd())
 	bucketCmd.AddCommand(makeBucketListCmd())
+	bucketCmd.AddCommand(makeBucketCreateCmd())
+	bucketCmd.AddCommand(makeBucketUpdateCmd())
+	bucketCmd.AddCommand(makeBucketPresignCmd())
+	bucketCmd.AddCommand(makeBucketPutFileCmd())
+	bucketCmd.AddCommand(makeBucketDeleteCmd())
+	bucketCmd.AddCommand(makeBucketDeleteFileCmd())
 
 	return bucketCmd
 }
