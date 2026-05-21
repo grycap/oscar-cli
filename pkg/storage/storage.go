@@ -77,6 +77,14 @@ type BucketListResult struct {
 	ReturnedItems int
 }
 
+type PresignRequest struct {
+	ObjectKey    string            `json:"object_key" binding:"required"`
+	Operation    string            `json:"operation" binding:"required"`
+	ExpiresIn    int64             `json:"expires_in"`
+	ContentType  string            `json:"content_type"`
+	ExtraHeaders map[string]string `json:"extra_headers"`
+}
+
 // ListBuckets returns the buckets available through the cluster MinIO provider.
 func ListBuckets(c *cluster.Cluster) ([]*BucketInfo, error) {
 	return ListBucketsWithContext(context.Background(), c)
@@ -619,7 +627,7 @@ func UpdateBucket(c *cluster.Cluster, name, visibility string, allowedUsers []st
 }
 
 // PresignBucket generates a presigned URL for a file in a bucket.
-func PresignBucket(c *cluster.Cluster, bucketName, fileName string, expires int) (string, error) {
+func PresignBucket(c *cluster.Cluster, bucketName string, req *PresignRequest) (string, error) {
 	if c == nil {
 		return "", errors.New("cluster configuration not provided")
 	}
@@ -627,34 +635,37 @@ func PresignBucket(c *cluster.Cluster, bucketName, fileName string, expires int)
 	if trimmedBucket == "" {
 		return "", errors.New("bucket name is required")
 	}
-	trimmedFile := strings.TrimSpace(fileName)
-	if trimmedFile == "" {
-		return "", errors.New("file name is required")
+	if req == nil {
+		return "", errors.New("presign request is required")
+	}
+	if strings.TrimSpace(req.ObjectKey) == "" {
+		return "", errors.New("object key is required")
 	}
 
 	endpoint, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return "", cluster.ErrParsingEndpoint
 	}
-	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmedBucket, "presign", trimmedFile)
 
-	query := endpoint.Query()
-	if expires > 0 {
-		query.Set("expires", strconv.Itoa(expires))
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmedBucket, "presign")
+
+	bodyBytes, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("cannot encode presign request: %w", err)
 	}
-	endpoint.RawQuery = query.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+	httpReq, err := http.NewRequest(http.MethodPost, endpoint.String(), bytes.NewReader(bodyBytes))
 	if err != nil {
 		return "", cluster.ErrMakingRequest
 	}
+	httpReq.Header.Set("Content-Type", "application/json")
 
 	client, err := c.GetClientSafe()
 	if err != nil {
 		return "", err
 	}
 
-	res, err := client.Do(req)
+	res, err := client.Do(httpReq)
 	if err != nil {
 		return "", cluster.ErrSendingRequest
 	}
@@ -673,7 +684,6 @@ func PresignBucket(c *cluster.Cluster, bucketName, fileName string, expires int)
 		URL string `json:"url"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		// Try plain text response
 		return strings.TrimSpace(string(body)), nil
 	}
 
