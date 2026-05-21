@@ -36,7 +36,12 @@ func quotaGetFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	quota, err := cluster.GetQuota(conf.Oscar[clusterName], args[0])
+	userID := ""
+	if len(args) > 0 {
+		userID = args[0]
+	}
+
+	quota, err := cluster.GetQuota(conf.Oscar[clusterName], userID)
 	if err != nil {
 		return err
 	}
@@ -52,9 +57,9 @@ func quotaGetFunc(cmd *cobra.Command, args []string) error {
 
 func makeQuotaGetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "get USER_ID",
+		Use:     "get [USER_ID]",
 		Short:   "Get quota for a user",
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.MaximumNArgs(1),
 		Aliases: []string{"g"},
 		RunE:    quotaGetFunc,
 	}

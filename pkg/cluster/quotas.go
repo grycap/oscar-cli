@@ -29,24 +29,18 @@ import (
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 
-const quotasPath = "/system/quotas"
+const quotasPath = "/system/quotas/user"
 
 // GetQuota returns the quota for the specified user.
 func GetQuota(c *Cluster, userID string) (*types.QuotaResponse, error) {
 	if c == nil {
 		return nil, errors.New("cluster configuration not provided")
 	}
-	trimmed := strings.TrimSpace(userID)
-	if trimmed == "" {
-		return nil, errors.New("user ID is required")
-	}
-
 	endpoint, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return nil, ErrParsingEndpoint
 	}
-	endpoint.Path = path.Join(endpoint.Path, quotasPath, trimmed)
-
+	endpoint.Path = path.Join(endpoint.Path, quotasPath, userID)
 	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return nil, ErrMakingRequest
@@ -92,8 +86,8 @@ func UpdateQuota(c *Cluster, userID, cpu, memory string, volumes *types.VolumeQu
 	endpoint.Path = path.Join(endpoint.Path, quotasPath, trimmed)
 
 	reqBody := types.QuotaUpdateRequest{
-		CPU:    cpu,
-		Memory: memory,
+		CPU:     cpu,
+		Memory:  memory,
 		Volumes: volumes,
 	}
 
