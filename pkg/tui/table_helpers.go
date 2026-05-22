@@ -19,6 +19,10 @@ func setBucketTableHeader(table *tview.Table) {
 	setTableHeader(table, bucketHeaders)
 }
 
+func setVolumeTableHeader(table *tview.Table) {
+	setTableHeader(table, volumeHeaders)
+}
+
 func setBucketObjectTableHeader(table *tview.Table) {
 	setTableHeader(table, bucketObjectHeaders)
 }
@@ -53,5 +57,35 @@ func bucketVisibilityColor(vis string) tcell.Color {
 		return tcell.ColorGreen
 	default:
 		return tcell.ColorWhite
+	}
+}
+
+func volumePhaseColor(phase string) tcell.Color {
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "ready", "in_use":
+		return tcell.ColorGreen
+	case "pending":
+		return tcell.ColorYellow
+	case "error":
+		return tcell.ColorRed
+	case "deleting", "deleted":
+		return tcell.ColorDarkCyan
+	default:
+		return tcell.ColorWhite
+	}
+}
+
+func colorTagForPhase(phase string) string {
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "ready", "in_use":
+		return "[green]"
+	case "pending":
+		return "[yellow]"
+	case "error":
+		return "[red]"
+	case "deleting", "deleted":
+		return "[gray]"
+	default:
+		return "[white]"
 	}
 }
