@@ -7,6 +7,59 @@ import (
 	"github.com/rivo/tview"
 )
 
+func legendTextForMode(mode panelMode) string {
+	base := `[yellow]Navigation[-]
+  ↑/↓  Move selection
+  ←/→ or Tab  Switch pane
+  f  Focus details panel
+
+[yellow]General[-]
+  q  Quit
+  r  Refresh current view
+  w  Configure auto refresh
+  ?  Toggle this help
+  :  Command palette
+  /  Search
+  i  Show cluster info
+  e  Show cluster status
+  m  Show cluster metrics
+  b  Switch to buckets view
+  s  Switch to services view
+  v  Switch to volumes view
+
+[yellow]Mode-specific[-]
+`
+	switch mode {
+	case modeServices:
+		base += `  d  Delete selected service
+  l  Open logs panel
+  g  Get quota (prompts user ID)
+  k  Update quota (5-step wizard)
+  t  Show deployment status
+  h  Show deployment logs
+  Enter  Focus service
+`
+	case modeVolumes:
+		base += `  c  Create volume
+  d  Delete selected volume
+`
+	case modeBuckets:
+		base += `  c  Create bucket
+  d  Delete selected bucket
+  Enter  Focus bucket objects
+  u  Upload file (in objects view)
+  o  Reload bucket objects
+  n/p  Next/previous page
+  a  Load all objects
+`
+	case modeLogs:
+		base += `  l  Open logs panel
+  d  Delete log
+`
+	}
+	return base
+}
+
 func (s *uiState) toggleLegend() {
 	s.mutex.Lock()
 	visible := s.legendVisible
@@ -37,9 +90,10 @@ func (s *uiState) showLegendUnlocked() {
 	}
 	s.legendVisible = true
 	s.savedFocus = s.app.GetFocus()
+	mode := s.mode
 	s.mutex.Unlock()
 	modal := tview.NewModal().
-		SetText(legendText).
+		SetText(legendTextForMode(mode)).
 		AddButtons([]string{"Close"})
 	modal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 		s.hideLegendUnlocked()

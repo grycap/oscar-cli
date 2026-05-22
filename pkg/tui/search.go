@@ -35,6 +35,20 @@ func (s *uiState) initiateSearch(ctx context.Context) {
 		}
 	case s.detailsView:
 		target = searchTargetDetails
+	case s.bucketObjectsTable:
+		target = searchTargetBuckets
+	}
+
+	// If focus is on the cluster list but we're in a mode-specific view,
+	// search that view's data instead.
+	if target == searchTargetClusters {
+		if mode == modeBuckets {
+			target = searchTargetBuckets
+		} else if mode == modeVolumes {
+			target = searchTargetVolumes
+		} else if mode == modeServices {
+			target = searchTargetServices
+		}
 	}
 
 	if target == searchTargetNone && len(s.clusterNames) > 0 {

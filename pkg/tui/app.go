@@ -49,6 +49,8 @@ func Run(ctx context.Context, conf *config.Config) error {
 		logDetails:         make(map[string]string),
 	}
 
+	state.initCommands()
+
 	state.statusView.SetBorder(false)
 	state.detailsView.SetBorder(true)
 	state.detailsView.SetScrollable(true)
@@ -544,6 +546,13 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 		}
 		return event
 	}
+	if s.commandPaletteVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideCommandPalette()
+			return nil
+		}
+		return event
+	}
 	switch event.Key() {
 	case tcell.KeyTab:
 		if s.app.GetFocus() == s.clusterList {
@@ -588,6 +597,24 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 			return nil
 		}
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		if inp, ok := s.app.GetFocus().(*tview.InputField); ok && inp.GetText() == "" {
+			if s.quotaPromptVisible {
+				s.hideQuotaPrompt()
+			} else if s.updateQuotaPromptVisible {
+				s.hideUpdateQuotaPrompt()
+			} else if s.createVolumePromptVisible {
+				s.hideCreateVolumePrompt()
+			} else if s.createBucketPromptVisible {
+				s.hideCreateBucketPrompt()
+			} else if s.putFilePromptVisible {
+				s.hidePutFilePrompt()
+			} else if s.commandPaletteVisible {
+				s.hideCommandPalette()
+			} else if s.autoRefreshPromptVisible {
+				s.hideAutoRefreshPrompt()
+			}
+			return nil
+		}
 		if s.app.GetFocus() == s.detailsView {
 			s.app.SetFocus(s.serviceTable)
 			return nil
@@ -703,6 +730,9 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 		return nil
 	case 'h', 'H':
 		s.showServiceDeploymentLogs(ctx)
+		return nil
+	case ':':
+		s.showCommandPalette()
 		return nil
 	case '/':
 		s.initiateSearch(ctx)
@@ -1061,6 +1091,13 @@ func (s *uiState) promptUpdateQuotaUserID(cfg *cluster.Cluster) {
 	input := tview.NewInputField()
 	input.SetLabel("User ID: ")
 	input.SetFieldWidth(40)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			return nil
+		}
+		return event
+	})
 	input.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
 			uid := strings.TrimSpace(input.GetText())
@@ -1095,6 +1132,14 @@ func (s *uiState) promptUpdateQuotaCPU(cfg *cluster.Cluster) {
 	input := tview.NewInputField()
 	input.SetLabel("CPU quota (e.g. 2, 500m, empty=unchanged): ")
 	input.SetFieldWidth(30)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaUserID(cfg)
+			return nil
+		}
+		return event
+	})
 	input.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
 			cpu := strings.TrimSpace(input.GetText())
@@ -1130,6 +1175,14 @@ func (s *uiState) promptUpdateQuotaMemory(cfg *cluster.Cluster) {
 	input := tview.NewInputField()
 	input.SetLabel("Memory quota (e.g. 2Gi, 512Mi, empty=unchanged): ")
 	input.SetFieldWidth(30)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaCPU(cfg)
+			return nil
+		}
+		return event
+	})
 	input.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
 			mem := strings.TrimSpace(input.GetText())
@@ -1157,6 +1210,14 @@ func (s *uiState) promptUpdateQuotaVolumeDisk(cfg *cluster.Cluster, uid, cpu, me
 	input := tview.NewInputField()
 	input.SetLabel("Volume disk (e.g. 5Gi, empty=unchanged): ")
 	input.SetFieldWidth(30)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaMemory(cfg)
+			return nil
+		}
+		return event
+	})
 	input.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
 			volDisk := strings.TrimSpace(input.GetText())
@@ -1187,6 +1248,14 @@ func (s *uiState) promptUpdateQuotaVolumeCount(cfg *cluster.Cluster, uid, cpu, m
 	input := tview.NewInputField()
 	input.SetLabel("Volume count (e.g. 3, empty=unchanged): ")
 	input.SetFieldWidth(30)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaVolumeDisk(cfg, uid, cpu, mem)
+			return nil
+		}
+		return event
+	})
 	input.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
 			volCount := strings.TrimSpace(input.GetText())
