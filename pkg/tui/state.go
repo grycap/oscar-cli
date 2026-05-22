@@ -37,7 +37,7 @@ const legendText = `[yellow]Navigation[-]
   q  Quit
   ?  Toggle this help`
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket/volume/object · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Volumes · [::b]c[::-] Create bucket/volume · [::b]u[::-] Upload file · [::b]m[::-] Metrics · [::b]e[::-] Status · [::b]g[::-] Quota · [::b]k[::-] Update quota · [::b]f[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket/volume/object · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Volumes · [::b]c[::-] Create bucket/volume · [::b]u[::-] Upload file · [::b]m[::-] Metrics · [::b]e[::-] Status · [::b]g[::-] Quota · [::b]k[::-] Update quota · [::b]t[::-] Deploy status · [::b]h[::-] Deploy logs · [::b]f[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type panelMode int
 

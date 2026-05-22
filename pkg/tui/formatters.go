@@ -358,3 +358,67 @@ func formatQuota(name string, quota *types.QuotaResponse) string {
 
 	return strings.TrimRight(builder.String(), "\n")
 }
+
+func formatDeploymentStatus(name string, ds *types.ServiceDeploymentSummary) string {
+	if ds == nil {
+		return "No deployment data available"
+	}
+	builder := &strings.Builder{}
+	fmt.Fprintf(builder, "[yellow]Service:[-] %s\n", name)
+
+	color := "[green]"
+	switch ds.State {
+	case types.DeploymentStateReady:
+		color = "[green]"
+	case types.DeploymentStateDegraded:
+		color = "[yellow]"
+	case types.DeploymentStateFailed, types.DeploymentStateUnavailable:
+		color = "[red]"
+	default:
+		color = "[blue]"
+	}
+	fmt.Fprintf(builder, "[yellow]State:[-] %s%s[-]\n", color, ds.State)
+
+	if ds.Reason != "" {
+		fmt.Fprintf(builder, "[yellow]Reason:[-] %s\n", ds.Reason)
+	}
+
+	if ds.LastTransitionTime != nil {
+		fmt.Fprintf(builder, "[yellow]Last Transition:[-] %s\n", ds.LastTransitionTime.Time.Format("2006-01-02 15:04:05"))
+	}
+
+	if ds.ActiveInstances > 0 || ds.AffectedInstances > 0 {
+		fmt.Fprintf(builder, "[yellow]Active Instances:[-] %d\n", ds.ActiveInstances)
+		fmt.Fprintf(builder, "[yellow]Affected Instances:[-] %d\n", ds.AffectedInstances)
+	}
+
+	if ds.ResourceKind != "" {
+		fmt.Fprintf(builder, "[yellow]Resource Kind:[-] %s\n", ds.ResourceKind)
+	}
+
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+func formatDeploymentLogs(dl *types.DeploymentLogStream) string {
+	if dl == nil {
+		return "No deployment logs available"
+	}
+	builder := &strings.Builder{}
+	fmt.Fprintf(builder, "[yellow]Service:[-] %s\n", dl.ServiceName)
+	fmt.Fprintf(builder, "[yellow]Available:[-] %t\n", dl.Available)
+	if dl.Message != "" {
+		fmt.Fprintf(builder, "[yellow]Message:[-] %s\n", dl.Message)
+	}
+	if len(dl.Entries) > 0 {
+		builder.WriteString("\n[yellow]Entries:[-]\n")
+		for _, e := range dl.Entries {
+			if e.Timestamp != "" {
+				fmt.Fprintf(builder, "  %s  ", e.Timestamp)
+			} else {
+				builder.WriteString("  ")
+			}
+			fmt.Fprintf(builder, "%s\n", e.Message)
+		}
+	}
+	return strings.TrimRight(builder.String(), "\n")
+}

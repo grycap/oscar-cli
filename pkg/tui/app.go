@@ -16,6 +16,7 @@ import (
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar-cli/pkg/config"
+	"github.com/grycap/oscar-cli/pkg/service"
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 
@@ -697,6 +698,12 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 	case 'k', 'K':
 		s.promptUpdateQuota()
 		return nil
+	case 't', 'T':
+		s.showServiceDeploymentStatus(ctx)
+		return nil
+	case 'h', 'H':
+		s.showServiceDeploymentLogs(ctx)
+		return nil
 	case '/':
 		s.initiateSearch(ctx)
 		return nil
@@ -1261,6 +1268,164 @@ func (s *uiState) performUpdateQuota(cfg *cluster.Cluster, uid, cpu, mem, volDis
 			s.detailsView.SetText(text)
 		})
 	}(clusterName, uid, cpu, mem, volUpdate, cfg)
+}
+
+func (s *uiState) showServiceDeploymentStatus(ctx context.Context) {
+	if s.searchVisible {
+		s.hideSearch()
+	}
+
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	if s.mode != modeServices {
+		s.mutex.Unlock()
+		s.setStatus("[red]Deployment status is only available in services view")
+		return
+	}
+
+	row, _ := s.serviceTable.GetSelection()
+	if row <= 0 || row-1 >= len(s.currentServices) {
+		s.mutex.Unlock()
+		s.setStatus("[red]Select a service to view deployment status")
+		return
+	}
+	svcPtr := s.currentServices[row-1]
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	if svcPtr == nil {
+		s.setStatus("[red]Select a service to view deployment status")
+		return
+	}
+	serviceName := strings.TrimSpace(svcPtr.Name)
+	if serviceName == "" {
+		s.setStatus("[red]Select a service to view deployment status")
+		return
+	}
+
+	clusterName = strings.TrimSpace(clusterName)
+	if clusterName == "" {
+		s.setStatus("[red]Select a cluster to view deployment status")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading deployment status for %q…", serviceName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading deployment status for %q…[-]", serviceName))
+	})
+
+	go func(svcName, clName string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load deployment status for %q: %s", svcName, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load deployment status for %q: %s[-]", svcName, errMsg))
+				})
+			}
+		}()
+		ds, err := service.GetDeploymentStatus(cfg, svcName)
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load deployment status for %q: %v", svcName, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load deployment status for %q:\n%v[-]", svcName, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Deployment status loaded for %q", svcName))
+		text := formatDeploymentStatus(svcName, ds)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(serviceName, clusterName, clusterCfg)
+}
+
+func (s *uiState) showServiceDeploymentLogs(ctx context.Context) {
+	if s.searchVisible {
+		s.hideSearch()
+	}
+
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	if s.mode != modeServices {
+		s.mutex.Unlock()
+		s.setStatus("[red]Deployment logs are only available in services view")
+		return
+	}
+
+	row, _ := s.serviceTable.GetSelection()
+	if row <= 0 || row-1 >= len(s.currentServices) {
+		s.mutex.Unlock()
+		s.setStatus("[red]Select a service to view deployment logs")
+		return
+	}
+	svcPtr := s.currentServices[row-1]
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	if svcPtr == nil {
+		s.setStatus("[red]Select a service to view deployment logs")
+		return
+	}
+	serviceName := strings.TrimSpace(svcPtr.Name)
+	if serviceName == "" {
+		s.setStatus("[red]Select a service to view deployment logs")
+		return
+	}
+
+	clusterName = strings.TrimSpace(clusterName)
+	if clusterName == "" {
+		s.setStatus("[red]Select a cluster to view deployment logs")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading deployment logs for %q…", serviceName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading deployment logs for %q…[-]", serviceName))
+	})
+
+	go func(svcName, clName string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load deployment logs for %q: %s", svcName, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load deployment logs for %q: %s[-]", svcName, errMsg))
+				})
+			}
+		}()
+		dl, err := service.GetDeploymentLogs(cfg, svcName)
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load deployment logs for %q: %v", svcName, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load deployment logs for %q:\n%v[-]", svcName, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Deployment logs loaded for %q", svcName))
+		text := formatDeploymentLogs(dl)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(serviceName, clusterName, clusterCfg)
 }
 
 func formatClusterStatus(clusterName string, status cluster.StatusInfo) string {
