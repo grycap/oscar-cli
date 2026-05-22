@@ -16,6 +16,7 @@ import (
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar-cli/pkg/config"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 // Run launches the interactive terminal user interface.
@@ -528,6 +529,20 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 		}
 		return event
 	}
+	if s.quotaPromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideQuotaPrompt()
+			return nil
+		}
+		return event
+	}
+	if s.updateQuotaPromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideUpdateQuotaPrompt()
+			return nil
+		}
+		return event
+	}
 	switch event.Key() {
 	case tcell.KeyTab:
 		if s.app.GetFocus() == s.clusterList {
@@ -677,7 +692,10 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 		s.showClusterStatus()
 		return nil
 	case 'g', 'G':
-		s.showQuota()
+		s.showQuotaPrompt()
+		return nil
+	case 'k', 'K':
+		s.promptUpdateQuota()
 		return nil
 	case '/':
 		s.initiateSearch(ctx)
@@ -884,29 +902,95 @@ func (s *uiState) showMetricsSummary() {
 	}(displayName, clusterCfg)
 }
 
-func (s *uiState) showQuota() {
+func (s *uiState) showQuotaPrompt() {
 	s.mutex.Lock()
-	if s.searchVisible || s.autoRefreshPromptVisible ||
+	if s.quotaPromptVisible || s.searchVisible || s.autoRefreshPromptVisible ||
 		s.confirmVisible || s.legendVisible || s.pages == nil ||
 		s.currentCluster == "" {
 		s.mutex.Unlock()
 		return
 	}
-	clusterName := s.currentCluster
-	clusterCfg := s.conf.Oscar[clusterName]
+	s.quotaPromptVisible = true
+	s.quotaFocus = s.app.GetFocus()
+	container := s.statusContainer
+	clusterCfg := s.conf.Oscar[s.currentCluster]
 	if clusterCfg == nil {
 		s.mutex.Unlock()
-		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", s.currentCluster))
+		s.hideQuotaPrompt()
 		return
 	}
+	usesBasicAuth := clusterCfg.AuthUser != "" && clusterCfg.AuthPassword != ""
 	s.mutex.Unlock()
 
-	s.setStatus(fmt.Sprintf("[yellow]Loading quota for %q…", clusterName))
-	s.queueUpdate(func() {
-		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading quota for %q…[-]", clusterName))
+	if !usesBasicAuth {
+		s.hideQuotaPrompt()
+		s.performFetchQuota(s.currentCluster, "", clusterCfg)
+		return
+	}
+
+	input := tview.NewInputField()
+	input.SetLabel("User ID: ")
+	input.SetFieldWidth(40)
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			uid := strings.TrimSpace(input.GetText())
+			if uid == "" {
+				s.setStatus("[red]Please enter a valid user ID for basic auth clusters")
+				s.queueUpdate(func() {
+					s.detailsView.SetText("[red]User ID is required when using auth_user/auth_password authentication.\nEnter a non-empty user ID to look up quotas.[-]")
+				})
+				return
+			}
+			s.hideQuotaPrompt()
+			s.setStatus(fmt.Sprintf("[green]Loading quota for %q...", displayUserID(uid)))
+			s.performFetchQuota(s.currentCluster, uid, clusterCfg)
+		} else if key == tcell.KeyEscape {
+			s.hideQuotaPrompt()
+		}
 	})
 
-	go func(name string, cfg *cluster.Cluster) {
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Quota Lookup")
+		input.SetBorder(false)
+		container.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) hideQuotaPrompt() {
+	s.mutex.Lock()
+	if !s.quotaPromptVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.quotaPromptVisible = false
+	focus := s.quotaFocus
+	s.quotaFocus = nil
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Status")
+		container.AddItem(s.statusView, 0, 1, false)
+		s.statusView.SetText(s.decorateStatusText(statusHelpText))
+	})
+	if focus != nil {
+		s.app.SetFocus(focus)
+	}
+}
+
+func (s *uiState) performFetchQuota(name string, userID string, cfg *cluster.Cluster) {
+	displayName := name
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading quota for %q…", displayName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading quota for %q…[-]", displayName))
+	})
+
+	go func(name, uid string, clusterCfg *cluster.Cluster) {
 		defer func() {
 			if r := recover(); r != nil {
 				errMsg := fmt.Sprintf("unexpected error: %v", r)
@@ -916,7 +1000,7 @@ func (s *uiState) showQuota() {
 				})
 			}
 		}()
-		quota, err := cluster.GetQuota(cfg, "")
+		quota, err := cluster.GetQuota(clusterCfg, uid)
 		if err != nil {
 			s.setStatus(fmt.Sprintf("[red]Failed to load quota for %q: %v", name, err))
 			s.queueUpdate(func() {
@@ -929,7 +1013,254 @@ func (s *uiState) showQuota() {
 		s.queueUpdate(func() {
 			s.detailsView.SetText(text)
 		})
-	}(clusterName, clusterCfg)
+	}(displayName, userID, cfg)
+}
+
+func displayUserID(userID string) string {
+	if userID == "" {
+		return "all users"
+	}
+	return userID
+}
+
+func (s *uiState) promptUpdateQuota() {
+	s.mutex.Lock()
+	if s.updateQuotaPromptVisible || s.quotaPromptVisible || s.searchVisible ||
+		s.autoRefreshPromptVisible || s.confirmVisible || s.legendVisible ||
+		s.pages == nil || s.currentCluster == "" {
+		s.mutex.Unlock()
+		return
+	}
+	clusterCfg := s.conf.Oscar[s.currentCluster]
+	if clusterCfg == nil {
+		s.mutex.Unlock()
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", s.currentCluster))
+		return
+	}
+	if clusterCfg.AuthUser == "" || clusterCfg.AuthPassword == "" {
+		s.mutex.Unlock()
+		s.setStatus("[red]Quota update is only available for clusters with auth_user/auth_password")
+		return
+	}
+	s.updateQuotaPromptVisible = true
+	s.updateQuotaStep = 0
+	s.updateQuotaFocus = s.app.GetFocus()
+	s.mutex.Unlock()
+
+	s.promptUpdateQuotaUserID(clusterCfg)
+}
+
+func (s *uiState) promptUpdateQuotaUserID(cfg *cluster.Cluster) {
+	input := tview.NewInputField()
+	input.SetLabel("User ID: ")
+	input.SetFieldWidth(40)
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			uid := strings.TrimSpace(input.GetText())
+			if uid == "" {
+				s.setStatus("[red]User ID cannot be empty")
+				return
+			}
+			s.mutex.Lock()
+			s.updateQuotaUserID = uid
+			s.mutex.Unlock()
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaCPU(cfg)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter user ID to update quota:[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (user ID)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) promptUpdateQuotaCPU(cfg *cluster.Cluster) {
+	s.mutex.Lock()
+	s.updateQuotaPromptVisible = true
+	s.mutex.Unlock()
+
+	input := tview.NewInputField()
+	input.SetLabel("CPU quota (e.g. 2, 500m, empty=unchanged): ")
+	input.SetFieldWidth(30)
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			cpu := strings.TrimSpace(input.GetText())
+			s.mutex.Lock()
+			s.updateQuotaCPU = cpu
+			s.mutex.Unlock()
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaMemory(cfg)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter CPU quota (or leave empty to keep current):[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (CPU)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) promptUpdateQuotaMemory(cfg *cluster.Cluster) {
+	s.mutex.Lock()
+	s.updateQuotaPromptVisible = true
+	s.mutex.Unlock()
+
+	s.mutex.Lock()
+	uid := s.updateQuotaUserID
+	cpu := s.updateQuotaCPU
+	s.mutex.Unlock()
+
+	input := tview.NewInputField()
+	input.SetLabel("Memory quota (e.g. 2Gi, 512Mi, empty=unchanged): ")
+	input.SetFieldWidth(30)
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			mem := strings.TrimSpace(input.GetText())
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaVolumeDisk(cfg, uid, cpu, mem)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter memory quota (or leave empty to keep current):[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (Memory)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) promptUpdateQuotaVolumeDisk(cfg *cluster.Cluster, uid, cpu, mem string) {
+	s.mutex.Lock()
+	s.updateQuotaPromptVisible = true
+	s.mutex.Unlock()
+
+	input := tview.NewInputField()
+	input.SetLabel("Volume disk (e.g. 5Gi, empty=unchanged): ")
+	input.SetFieldWidth(30)
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			volDisk := strings.TrimSpace(input.GetText())
+			s.hideUpdateQuotaPrompt()
+			s.mutex.Lock()
+			s.updateQuotaVolumeDisk = volDisk
+			s.mutex.Unlock()
+			s.promptUpdateQuotaVolumeCount(cfg, uid, cpu, mem, volDisk)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter volume disk quota (or leave empty to keep current):[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (Volume Disk)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) promptUpdateQuotaVolumeCount(cfg *cluster.Cluster, uid, cpu, mem, volDisk string) {
+	s.mutex.Lock()
+	s.updateQuotaPromptVisible = true
+	s.mutex.Unlock()
+
+	input := tview.NewInputField()
+	input.SetLabel("Volume count (e.g. 3, empty=unchanged): ")
+	input.SetFieldWidth(30)
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			volCount := strings.TrimSpace(input.GetText())
+			s.hideUpdateQuotaPrompt()
+			s.performUpdateQuota(cfg, uid, cpu, mem, volDisk, volCount)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter volume count quota (or leave empty to keep current):[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (Volume Count)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) hideUpdateQuotaPrompt() {
+	s.mutex.Lock()
+	if !s.updateQuotaPromptVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.updateQuotaPromptVisible = false
+	focus := s.updateQuotaFocus
+	s.updateQuotaFocus = nil
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Status")
+		container.AddItem(s.statusView, 0, 1, false)
+		s.statusView.SetText(s.decorateStatusText(statusHelpText))
+	})
+	if focus != nil {
+		s.app.SetFocus(focus)
+	}
+}
+
+func (s *uiState) performUpdateQuota(cfg *cluster.Cluster, uid, cpu, mem, volDisk, volCount string) {
+	clusterName := s.currentCluster
+	s.setStatus(fmt.Sprintf("[yellow]Updating quota for user %q...", uid))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Updating quota for user %q...[-]", uid))
+	})
+
+	var volUpdate *types.VolumeQuotaUpdate
+	if volDisk != "" || volCount != "" {
+		volUpdate = &types.VolumeQuotaUpdate{
+			Disk:    volDisk,
+			Volumes: volCount,
+		}
+	}
+
+	go func(name, userID, cpuVal, memVal string, vu *types.VolumeQuotaUpdate, clusterCfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to update quota: %s", errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to update quota: %s[-]", errMsg))
+				})
+			}
+		}()
+		quota, err := cluster.UpdateQuota(clusterCfg, userID, cpuVal, memVal, vu)
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to update quota for %q: %v", userID, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to update quota for %q:\n%v[-]", userID, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Quota updated for user %q", userID))
+		text := formatQuota(name, quota)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(clusterName, uid, cpu, mem, volUpdate, cfg)
 }
 
 func formatClusterStatus(clusterName string, status cluster.StatusInfo) string {
