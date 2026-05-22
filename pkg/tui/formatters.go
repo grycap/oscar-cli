@@ -181,3 +181,50 @@ func formatBucketDetails(bucket *storage.BucketInfo) string {
 
 	return builder.String()
 }
+
+func formatVolumeDetails(vol *types.ManagedVolume) string {
+	if vol == nil {
+		return ""
+	}
+	builder := &strings.Builder{}
+	fmt.Fprintf(builder, "[yellow]Name:[-] %s\n", vol.Name)
+	if vol.Size != "" {
+		fmt.Fprintf(builder, "[yellow]Size:[-] %s\n", vol.Size)
+	}
+	if vol.Status.Phase != "" {
+		colorTag := colorTagForPhase(vol.Status.Phase)
+		fmt.Fprintf(builder, "[yellow]Status:[-] %s%s[-]\n", colorTag, vol.Status.Phase)
+	}
+	if vol.Status.Message != "" {
+		fmt.Fprintf(builder, "[yellow]Message:[-] %s\n", vol.Status.Message)
+	}
+	if vol.Namespace != "" {
+		fmt.Fprintf(builder, "[yellow]Namespace:[-] %s\n", vol.Namespace)
+	}
+	if vol.PVCName != "" {
+		fmt.Fprintf(builder, "[yellow]PVC Name:[-] %s\n", vol.PVCName)
+	}
+	if vol.OwnerUser != "" {
+		fmt.Fprintf(builder, "[yellow]Owner:[-] %s\n", vol.OwnerUser)
+	}
+	if vol.CreationMode != "" {
+		fmt.Fprintf(builder, "[yellow]Creation Mode:[-] %s\n", vol.CreationMode)
+	}
+	if vol.LifecyclePolicy != "" {
+		fmt.Fprintf(builder, "[yellow]Lifecycle Policy:[-] %s\n", vol.LifecyclePolicy)
+	}
+	if vol.CreatedByService != "" {
+		fmt.Fprintf(builder, "[yellow]Created By:[-] %s\n", vol.CreatedByService)
+	}
+	if len(vol.Attachments) > 0 {
+		fmt.Fprintf(builder, "[yellow]Attachments:[-]\n")
+		for _, att := range vol.Attachments {
+			fmt.Fprintf(builder, "  - %s → %s\n", att.ServiceName, att.MountPath)
+		}
+	}
+	if vol.Status.AttachmentCount > 0 {
+		fmt.Fprintf(builder, "[yellow]Attachment Count:[-] %d\n", vol.Status.AttachmentCount)
+	}
+
+	return builder.String()
+}

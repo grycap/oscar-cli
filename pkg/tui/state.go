@@ -19,12 +19,14 @@ const legendText = `[yellow]Navigation[-]
 
 [yellow]Actions[-]
   r  Refresh current view
-  d or Del  Delete selected service/bucket
+  d or Del  Delete selected service/bucket/volume
   i  Show cluster info
   l  Open logs panel
   w  Configure auto refresh
   b  Switch to buckets view
   s  Switch to services view
+  m  Switch to volumes view
+  c  Create volume (volumes view)
   Enter  Focus bucket objects (bucket view)
   o  Reload bucket objects (bucket view)
   n/p  Next/previous bucket objects page
@@ -32,7 +34,7 @@ const legendText = `[yellow]Navigation[-]
   q  Quit
   ?  Toggle this help`
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket/volume · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]m[::-] Volumes · [::b]c[::-] Create volume · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type panelMode int
 
@@ -40,6 +42,7 @@ const (
 	modeServices panelMode = iota
 	modeBuckets
 	modeLogs
+	modeVolumes
 )
 
 var (
@@ -47,6 +50,7 @@ var (
 	bucketHeaders       = []string{"Name", "Visibility", "Owner"}
 	bucketObjectHeaders = []string{"Name", "Size (B)", "Last Modified"}
 	logHeaders          = []string{"Job", "Status", "Started", "Finished"}
+	volumeHeaders       = []string{"Name", "Size", "Status", "Attachments"}
 )
 
 type searchTarget int
@@ -57,6 +61,7 @@ const (
 	searchTargetServices
 	searchTargetLogs
 	searchTargetBuckets
+	searchTargetVolumes
 	searchTargetDetails
 )
 
@@ -90,6 +95,13 @@ type uiState struct {
 	confirmVisible           bool
 	savedFocus               tview.Primitive
 	mode                     panelMode
+	volumes                  []types.ManagedVolume
+	volumeCancel             context.CancelFunc
+	volumeSeq                int
+	volumeCluster            string
+	createVolumePromptVisible bool
+	createVolumeName         string
+	createVolumeFocus        tview.Primitive
 	bucketInfos              []*storage.BucketInfo
 	bucketCancel             context.CancelFunc
 	bucketSeq                int

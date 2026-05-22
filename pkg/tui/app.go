@@ -305,6 +305,21 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 
 	s.showClusterDetails(name)
 
+	if mode == modeVolumes {
+		if name == "" {
+			s.setStatus("[red]Select a cluster to view volumes")
+			s.queueUpdate(func() {
+				s.showVolumeMessage("Select a cluster to view volumes")
+			})
+			return
+		}
+		s.queueUpdate(func() {
+			s.showVolumeMessage("Loading volumes…")
+		})
+		go s.loadVolumes(ctx, name, false)
+		return
+	}
+
 	if mode == modeBuckets {
 		if name == "" {
 			s.setStatus("[red]Select a cluster to view buckets")
@@ -348,7 +363,9 @@ func (s *uiState) refreshCurrent(ctx context.Context) {
 	if name == "" {
 		return
 	}
-	if mode == modeBuckets {
+	if mode == modeVolumes {
+		go s.loadVolumes(ctx, name, true)
+	} else if mode == modeBuckets {
 		go s.loadBuckets(ctx, name, true)
 	} else if mode == modeLogs {
 		go s.loadLogs(ctx, name, s.currentLogService, true)
@@ -385,6 +402,13 @@ func (s *uiState) modeIsBuckets() bool {
 	mode := s.mode
 	s.mutex.Unlock()
 	return mode == modeBuckets
+}
+
+func (s *uiState) modeIsVolumes() bool {
+	s.mutex.Lock()
+	mode := s.mode
+	s.mutex.Unlock()
+	return mode == modeVolumes
 }
 
 func (s *uiState) modeIsLogs() bool {
@@ -433,6 +457,10 @@ func (s *uiState) handleSelection(row int, immediate bool) {
 	s.mutex.Lock()
 	mode := s.mode
 	s.mutex.Unlock()
+	if mode == modeVolumes {
+		s.handleVolumeSelection(row, immediate)
+		return
+	}
 	if mode == modeBuckets {
 		s.handleBucketSelection(row, immediate)
 		return
@@ -475,6 +503,13 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 	if s.autoRefreshPromptVisible {
 		if event.Key() == tcell.KeyEsc {
 			s.hideAutoRefreshPrompt()
+			return nil
+		}
+		return event
+	}
+	if s.createVolumePromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideCreateVolumePrompt()
 			return nil
 		}
 		return event
@@ -549,8 +584,16 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 	case 'w', 'W':
 		s.promptAutoRefresh()
 		return nil
+	case 'c', 'C':
+		if s.modeIsVolumes() {
+			s.promptCreateVolume()
+			return nil
+		}
 	case 'b', 'B':
 		s.switchToBuckets(ctx)
+		return nil
+	case 'm', 'M':
+		s.switchToVolumes(ctx)
 		return nil
 	case 's', 'S':
 		s.switchToServices(ctx)
@@ -577,7 +620,7 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 			return nil
 		}
 	case 'd', 'D':
-		if s.app.GetFocus() == s.serviceTable && s.modeIsServices() {
+		if s.app.GetFocus() == s.serviceTable {
 			s.requestDeletion()
 			return nil
 		}

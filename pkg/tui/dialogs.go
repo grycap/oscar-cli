@@ -122,6 +122,27 @@ func (s *uiState) requestDeletion() {
 				go s.performBucketDeletion(clusterName, bucketName)
 			})
 		})
+	case modeVolumes:
+		if row <= 0 || row-1 >= len(s.volumes) || clusterName == "" {
+			s.mutex.Unlock()
+			s.setStatus("[red]Select a volume to delete")
+			return
+		}
+		vol := s.volumes[row-1]
+		if strings.TrimSpace(vol.Name) == "" {
+			s.mutex.Unlock()
+			s.setStatus("[red]Select a volume to delete")
+			return
+		}
+		volName := vol.Name
+		s.mutex.Unlock()
+
+		prompt := fmt.Sprintf("Delete volume %q from cluster %q?", volName, clusterName)
+		s.queueUpdate(func() {
+			s.showConfirmation(prompt, func() {
+				go s.performVolumeDeletion(clusterName, volName)
+			})
+		})
 	default:
 		s.mutex.Unlock()
 		s.setStatus("[red]Deletion not available in this view")

@@ -28,6 +28,8 @@ func (s *uiState) initiateSearch(ctx context.Context) {
 			target = searchTargetBuckets
 		} else if mode == modeLogs {
 			target = searchTargetLogs
+		} else if mode == modeVolumes {
+			target = searchTargetVolumes
 		} else {
 			target = searchTargetServices
 		}
@@ -69,6 +71,12 @@ func (s *uiState) initiateSearch(ctx context.Context) {
 			s.setStatus("[yellow]No buckets to search")
 			return
 		}
+	case searchTargetVolumes:
+		if len(s.volumes) == 0 {
+			s.mutex.Unlock()
+			s.setStatus("[yellow]No volumes to search")
+			return
+		}
 	case searchTargetDetails:
 		text := s.detailsView.GetText(true)
 		if strings.TrimSpace(text) == "" {
@@ -102,6 +110,8 @@ func (s *uiState) showSearch(target searchTarget) {
 		label = "Services: "
 	case searchTargetBuckets:
 		label = "Buckets: "
+	case searchTargetVolumes:
+		label = "Volumes: "
 	case searchTargetDetails:
 		label = "Details: "
 	}
@@ -178,6 +188,8 @@ func (s *uiState) handleSearchInput(query string) {
 		found = s.searchLogs(lower)
 	case searchTargetBuckets:
 		found = s.searchBuckets(lower)
+	case searchTargetVolumes:
+		found = s.searchVolumes(lower)
 	case searchTargetDetails:
 		found = s.searchDetails(lower)
 	}
