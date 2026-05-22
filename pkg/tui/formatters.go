@@ -182,6 +182,77 @@ func formatBucketDetails(bucket *storage.BucketInfo) string {
 	return builder.String()
 }
 
+func formatMetricsSummary(name string, summary *types.MetricsSummaryResponse) string {
+	if summary == nil {
+		return "No metrics available"
+	}
+	builder := &strings.Builder{}
+	if name != "" {
+		fmt.Fprintf(builder, "[yellow]Cluster:[-] %s\n", name)
+	}
+	if !summary.Start.IsZero() && !summary.End.IsZero() {
+		fmt.Fprintf(builder, "[yellow]Period:[-] %s → %s\n",
+			summary.Start.Format("2006-01-02 15:04"),
+			summary.End.Format("2006-01-02 15:04"))
+	}
+
+	totals := summary.Totals
+	builder.WriteString("\n[yellow]Services[-]\n")
+	fmt.Fprintf(builder, "  Active: %d\n", totals.ServicesCountActive)
+	fmt.Fprintf(builder, "  Total:  %d\n", totals.ServicesCountTotal)
+
+	builder.WriteString("\n[yellow]CPU/GPU Hours[-]\n")
+	fmt.Fprintf(builder, "  CPU: %.1f h\n", totals.CPUHoursTotal)
+	fmt.Fprintf(builder, "  GPU: %.1f h\n", totals.GPUHoursTotal)
+
+	builder.WriteString("\n[yellow]Requests[-]\n")
+	fmt.Fprintf(builder, "  Total:  %d\n", totals.RequestsCountTotal)
+	fmt.Fprintf(builder, "  Sync:   %d\n", totals.RequestsCountSync)
+	fmt.Fprintf(builder, "  Async:  %d\n", totals.RequestsCountAsync)
+	fmt.Fprintf(builder, "  Exposed: %d\n", totals.RequestsCountExposed)
+
+	builder.WriteString("\n[yellow]Users[-]\n")
+	fmt.Fprintf(builder, "  Total: %d\n", totals.UsersCount)
+	if len(totals.Users) > 0 {
+		builder.WriteString("  ")
+		for i, u := range totals.Users {
+			if i > 0 {
+				builder.WriteString(", ")
+			}
+			builder.WriteString(u)
+		}
+		builder.WriteByte('\n')
+	}
+
+	builder.WriteString("\n[yellow]Countries[-]\n")
+	fmt.Fprintf(builder, "  Total: %d\n", totals.CountriesCount)
+	if len(totals.Countries) > 0 {
+		for _, c := range totals.Countries {
+			fmt.Fprintf(builder, "  - %s: %d\n", c.Country, c.RequestCount)
+		}
+	}
+
+	if len(summary.Sources) > 0 {
+		builder.WriteString("\n[yellow]Sources[-]\n")
+		for _, src := range summary.Sources {
+			statusColor := "[green]"
+			if src.Status != "healthy" {
+				statusColor = "[red]"
+			}
+			fmt.Fprintf(builder, "  - %s: %s%s[-]", src.Name, statusColor, src.Status)
+			if src.LastUpdated != nil && !src.LastUpdated.IsZero() {
+				fmt.Fprintf(builder, " (%s)", src.LastUpdated.Format("2006-01-02 15:04"))
+			}
+			builder.WriteByte('\n')
+			if src.Notes != "" {
+				fmt.Fprintf(builder, "    %s\n", src.Notes)
+			}
+		}
+	}
+
+	return strings.TrimRight(builder.String(), "\n")
+}
+
 func formatVolumeDetails(vol *types.ManagedVolume) string {
 	if vol == nil {
 		return ""

@@ -15,7 +15,7 @@ import (
 const legendText = `[yellow]Navigation[-]
   ↑/↓  Move selection
   ←/→ or Tab  Switch pane
-  v  Focus details panel
+  f  Focus details panel
 
 [yellow]Actions[-]
   r  Refresh current view
@@ -25,9 +25,11 @@ const legendText = `[yellow]Navigation[-]
   w  Configure auto refresh
   b  Switch to buckets view
   s  Switch to services view
-  m  Switch to volumes view
+  v  Switch to volumes view
   c  Create bucket/volume
   u  Upload file (bucket objects view)
+  m  Show cluster metrics
+  e  Show cluster status
   Enter  Focus bucket objects (bucket view)
   o  Reload bucket objects (bucket view)
   n/p  Next/previous bucket objects page
@@ -35,7 +37,7 @@ const legendText = `[yellow]Navigation[-]
   q  Quit
   ?  Toggle this help`
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket/volume/object · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]m[::-] Volumes · [::b]c[::-] Create bucket/volume · [::b]u[::-] Upload file · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket/volume/object · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Volumes · [::b]c[::-] Create bucket/volume · [::b]u[::-] Upload file · [::b]m[::-] Metrics · [::b]e[::-] Status · [::b]f[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type panelMode int
 

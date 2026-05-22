@@ -611,10 +611,22 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 		s.switchToBuckets(ctx)
 		return nil
 	case 'm', 'M':
-		s.switchToVolumes(ctx)
+		s.showMetricsSummary()
 		return nil
 	case 's', 'S':
 		s.switchToServices(ctx)
+		return nil
+	case 'v', 'V':
+		s.switchToVolumes(ctx)
+		return nil
+	case 'f', 'F':
+		s.queueUpdate(func() {
+			if s.app.GetFocus() != s.detailsView {
+				s.app.SetFocus(s.detailsView)
+			} else {
+				s.app.SetFocus(s.serviceTable)
+			}
+		})
 		return nil
 	case 'u', 'U':
 		if s.modeIsBuckets() && s.app.GetFocus() == s.bucketObjectsTable {
@@ -651,15 +663,6 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 			s.requestBucketObjectDeletion()
 			return nil
 		}
-	case 'v', 'V':
-		s.queueUpdate(func() {
-			if s.app.GetFocus() != s.detailsView {
-				s.app.SetFocus(s.detailsView)
-			} else {
-				s.app.SetFocus(s.serviceTable)
-			}
-		})
-		return nil
 	case 'l', 'L':
 		if s.app.GetFocus() == s.serviceTable {
 			s.switchToLogs(ctx)
@@ -671,7 +674,7 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 	case 'i', 'I':
 		s.showClusterInfo()
 		return nil
-	case 't', 'T':
+	case 'e', 'E':
 		s.showClusterStatus()
 		return nil
 	case '/':
@@ -729,11 +732,26 @@ func (s *uiState) showClusterInfo() {
 	}
 
 	s.setStatus(fmt.Sprintf("[yellow]Loading info for cluster %q…", displayName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading info for %q…[-]", displayName))
+	})
 
 	go func(name string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load info for %q: %s", name, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load info for %q: %s[-]", name, errMsg))
+				})
+			}
+		}()
 		info, err := cfg.GetClusterInfo()
 		if err != nil {
 			s.setStatus(fmt.Sprintf("[red]Failed to load info for %q: %v", name, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load info for %q:\n%v[-]", name, err))
+			})
 			return
 		}
 		s.setStatus(fmt.Sprintf("[green]Cluster info loaded for %q", name))
@@ -774,15 +792,90 @@ func (s *uiState) showClusterStatus() {
 	}
 
 	s.setStatus(fmt.Sprintf("[yellow]Loading status for cluster %q…", displayName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading status for %q…[-]", displayName))
+	})
 
 	go func(name string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load status for %q: %s", name, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load status for %q: %s[-]", name, errMsg))
+				})
+			}
+		}()
 		status, err := cfg.GetClusterStatus()
 		if err != nil {
 			s.setStatus(fmt.Sprintf("[red]Failed to load status for %q: %v", name, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load status for %q:\n%v[-]", name, err))
+			})
 			return
 		}
 		s.setStatus(fmt.Sprintf("[green]Cluster status loaded for %q", name))
 		text := formatClusterStatus(name, status)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(displayName, clusterCfg)
+}
+
+func (s *uiState) showMetricsSummary() {
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	trimmedName := strings.TrimSpace(clusterName)
+	if trimmedName == "" {
+		s.setStatus("[red]Select a cluster to view metrics")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil && trimmedName != clusterName {
+		clusterCfg = s.conf.Oscar[trimmedName]
+	}
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", trimmedName))
+		return
+	}
+
+	displayName := trimmedName
+	if displayName == "" {
+		displayName = clusterName
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading metrics for cluster %q…", displayName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading metrics for %q…[-]", displayName))
+	})
+
+	go func(name string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load metrics for %q: %s", name, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load metrics for %q: %s[-]", name, errMsg))
+				})
+			}
+		}()
+		summary, err := cluster.GetMetricsSummary(cfg, "", "")
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load metrics for %q: %v", name, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load metrics for %q:\n%v[-]", name, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Metrics loaded for %q", name))
+		text := formatMetricsSummary(name, summary)
 		s.queueUpdate(func() {
 			s.detailsView.SetText(text)
 		})
