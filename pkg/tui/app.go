@@ -528,7 +528,6 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 		}
 		return event
 	}
-
 	switch event.Key() {
 	case tcell.KeyTab:
 		if s.app.GetFocus() == s.clusterList {
@@ -676,6 +675,9 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 		return nil
 	case 'e', 'E':
 		s.showClusterStatus()
+		return nil
+	case 'g', 'G':
+		s.showQuota()
 		return nil
 	case '/':
 		s.initiateSearch(ctx)
@@ -880,6 +882,54 @@ func (s *uiState) showMetricsSummary() {
 			s.detailsView.SetText(text)
 		})
 	}(displayName, clusterCfg)
+}
+
+func (s *uiState) showQuota() {
+	s.mutex.Lock()
+	if s.searchVisible || s.autoRefreshPromptVisible ||
+		s.confirmVisible || s.legendVisible || s.pages == nil ||
+		s.currentCluster == "" {
+		s.mutex.Unlock()
+		return
+	}
+	clusterName := s.currentCluster
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.mutex.Unlock()
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+	s.mutex.Unlock()
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading quota for %q…", clusterName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading quota for %q…[-]", clusterName))
+	})
+
+	go func(name string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load quota for %q: %s", name, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load quota for %q: %s[-]", name, errMsg))
+				})
+			}
+		}()
+		quota, err := cluster.GetQuota(cfg, "")
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load quota for %q: %v", name, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load quota for %q:\n%v[-]", name, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Quota loaded for %q", name))
+		text := formatQuota(name, quota)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(clusterName, clusterCfg)
 }
 
 func formatClusterStatus(clusterName string, status cluster.StatusInfo) string {

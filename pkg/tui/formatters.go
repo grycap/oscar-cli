@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -298,4 +299,62 @@ func formatVolumeDetails(vol *types.ManagedVolume) string {
 	}
 
 	return builder.String()
+}
+
+func formatQuota(name string, quota *types.QuotaResponse) string {
+	if quota == nil {
+		return "No quota data available"
+	}
+	builder := &strings.Builder{}
+	if name != "" {
+		fmt.Fprintf(builder, "[yellow]Cluster:[-] %s\n", name)
+	}
+	fmt.Fprintf(builder, "[yellow]User:[-] %s\n", defaultIfEmpty(quota.UserID, "-"))
+	if quota.ClusterQueue != "" {
+		fmt.Fprintf(builder, "[yellow]Cluster Queue:[-] %s\n", quota.ClusterQueue)
+	}
+
+	// Sort resource keys for consistent output
+	resKeys := make([]string, 0, len(quota.Resources))
+	for k := range quota.Resources {
+		resKeys = append(resKeys, k)
+	}
+	sort.Strings(resKeys)
+
+	if len(resKeys) > 0 {
+		builder.WriteString("\n[yellow]Resources[-]\n")
+		for _, k := range resKeys {
+			v := quota.Resources[k]
+			colorMax := "[green]"
+			colorUsed := "[green]"
+			if v.Max > 0 && v.Used >= v.Max {
+				colorUsed = "[red]"
+			} else if v.Max > 0 && v.Used > v.Max/2 {
+				colorUsed = "[yellow]"
+			}
+			fmt.Fprintf(builder, "  %s: %s%d[-] / %s%d[-]\n", k, colorUsed, v.Used, colorMax, v.Max)
+		}
+	}
+
+	if v := quota.Volumes; v != nil {
+		builder.WriteString("\n[yellow]Volumes[-]\n")
+		if v.Disk.Max != "" || v.Disk.Used != "" {
+			fmt.Fprintf(builder, "  Disk:    %s / %s\n",
+				defaultIfEmpty(v.Disk.Used, "0"),
+				defaultIfEmpty(v.Disk.Max, "-"))
+		}
+		if v.Volumes.Max != "" || v.Volumes.Used != "" {
+			fmt.Fprintf(builder, "  Count:   %s / %s\n",
+				defaultIfEmpty(v.Volumes.Used, "0"),
+				defaultIfEmpty(v.Volumes.Max, "-"))
+		}
+		if v.MaxDiskperVolume != "" {
+			fmt.Fprintf(builder, "  Max/vol: %s\n", v.MaxDiskperVolume)
+		}
+		if v.MinDiskperVolume != "" {
+			fmt.Fprintf(builder, "  Min/vol: %s\n", v.MinDiskperVolume)
+		}
+	}
+
+	return strings.TrimRight(builder.String(), "\n")
 }
