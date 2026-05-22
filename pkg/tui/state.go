@@ -19,14 +19,15 @@ const legendText = `[yellow]Navigation[-]
 
 [yellow]Actions[-]
   r  Refresh current view
-  d or Del  Delete selected service/bucket/volume
+  d or Del  Delete selected service/bucket/volume/object
   i  Show cluster info
   l  Open logs panel
   w  Configure auto refresh
   b  Switch to buckets view
   s  Switch to services view
   m  Switch to volumes view
-  c  Create volume (volumes view)
+  c  Create bucket/volume
+  u  Upload file (bucket objects view)
   Enter  Focus bucket objects (bucket view)
   o  Reload bucket objects (bucket view)
   n/p  Next/previous bucket objects page
@@ -34,7 +35,7 @@ const legendText = `[yellow]Navigation[-]
   q  Quit
   ?  Toggle this help`
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket/volume · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]m[::-] Volumes · [::b]c[::-] Create volume · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket/volume/object · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]m[::-] Volumes · [::b]c[::-] Create bucket/volume · [::b]u[::-] Upload file · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type panelMode int
 
@@ -102,6 +103,11 @@ type uiState struct {
 	createVolumePromptVisible bool
 	createVolumeName         string
 	createVolumeFocus        tview.Primitive
+	createBucketPromptVisible bool
+	createBucketName         string
+	createBucketFocus        tview.Primitive
+	putFilePromptVisible     bool
+	putFileFocus             tview.Primitive
 	bucketInfos              []*storage.BucketInfo
 	bucketCancel             context.CancelFunc
 	bucketSeq                int

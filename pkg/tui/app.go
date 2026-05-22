@@ -514,6 +514,20 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 		}
 		return event
 	}
+	if s.createBucketPromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideCreateBucketPrompt()
+			return nil
+		}
+		return event
+	}
+	if s.putFilePromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hidePutFilePrompt()
+			return nil
+		}
+		return event
+	}
 
 	switch event.Key() {
 	case tcell.KeyTab:
@@ -589,6 +603,10 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 			s.promptCreateVolume()
 			return nil
 		}
+		if s.modeIsBuckets() {
+			s.promptCreateBucket()
+			return nil
+		}
 	case 'b', 'B':
 		s.switchToBuckets(ctx)
 		return nil
@@ -598,6 +616,11 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 	case 's', 'S':
 		s.switchToServices(ctx)
 		return nil
+	case 'u', 'U':
+		if s.modeIsBuckets() && s.app.GetFocus() == s.bucketObjectsTable {
+			s.promptPutFile()
+			return nil
+		}
 	case 'o', 'O':
 		if s.modeIsBuckets() {
 			s.reloadBucketObjects(ctx)
@@ -622,6 +645,10 @@ func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell
 	case 'd', 'D':
 		if s.app.GetFocus() == s.serviceTable {
 			s.requestDeletion()
+			return nil
+		}
+		if s.app.GetFocus() == s.bucketObjectsTable {
+			s.requestBucketObjectDeletion()
 			return nil
 		}
 	case 'v', 'V':
