@@ -37,9 +37,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 

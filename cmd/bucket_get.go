@@ -22,8 +22,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/storage"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/storage"
 	"github.com/spf13/cobra"
 )
 

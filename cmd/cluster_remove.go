@@ -17,7 +17,7 @@ limitations under the License.
 package cmd
 
 import (
-	"github.com/grycap/oscar-cli/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
 	"github.com/spf13/cobra"
 )
 

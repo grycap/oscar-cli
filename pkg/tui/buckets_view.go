@@ -9,7 +9,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/grycap/oscar-cli/pkg/storage"
+	"github.com/grycap/oscar-cli/v2/pkg/storage"
 )
 
 func (s *uiState) switchToBuckets(ctx context.Context) {

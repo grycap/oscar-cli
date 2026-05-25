@@ -7,8 +7,8 @@ import (
 
 	"github.com/rivo/tview"
 
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/storage"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/storage"
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 

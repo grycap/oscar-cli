@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar-cli/pkg/service"
-	"github.com/grycap/oscar-cli/pkg/storage"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
+	"github.com/grycap/oscar-cli/v2/pkg/storage"
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 

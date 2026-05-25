@@ -21,8 +21,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/hub"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/hub"
 	"github.com/spf13/cobra"
 )
 
