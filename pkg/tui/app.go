@@ -7,13 +7,17 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
 	"github.com/grycap/oscar-cli/pkg/cluster"
 	"github.com/grycap/oscar-cli/pkg/config"
+	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 // Run launches the interactive terminal user interface.
@@ -44,6 +48,8 @@ func Run(ctx context.Context, conf *config.Config) error {
 		serviceDefinitions: make(map[string]string),
 		logDetails:         make(map[string]string),
 	}
+
+	state.initCommands()
 
 	state.statusView.SetBorder(false)
 	state.detailsView.SetBorder(true)
@@ -120,150 +126,10 @@ func Run(ctx context.Context, conf *config.Config) error {
 	app.SetRoot(pages, true)
 	app.SetFocus(state.clusterList)
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if state.searchVisible {
-			if event.Key() == tcell.KeyEsc {
-				state.hideSearch()
-				return nil
-			}
-			return event
-		}
-		if state.autoRefreshPromptVisible {
-			if event.Key() == tcell.KeyEsc {
-				state.hideAutoRefreshPrompt()
-				return nil
-			}
-			return event
-		}
-
-		switch event.Key() {
-		case tcell.KeyTab:
-			if app.GetFocus() == state.clusterList {
-				if state.modeIsServices() {
-					state.markServicePanelVisited()
-				}
-				app.SetFocus(state.serviceTable)
-			} else if state.modeIsBuckets() && app.GetFocus() == state.serviceTable {
-				state.focusBucketObjectsTable()
-			} else {
-				app.SetFocus(state.clusterList)
-			}
-			return nil
-		case tcell.KeyRight:
-			if app.GetFocus() == state.clusterList {
-				if state.modeIsServices() {
-					state.markServicePanelVisited()
-				}
-				app.SetFocus(state.serviceTable)
-				return nil
-			}
-			if state.modeIsBuckets() && app.GetFocus() == state.serviceTable {
-				state.focusBucketObjectsTable()
-				return nil
-			}
-		case tcell.KeyLeft:
-			if app.GetFocus() == state.serviceTable {
-				app.SetFocus(state.clusterList)
-				return nil
-			}
-			if app.GetFocus() == state.bucketObjectsTable {
-				app.SetFocus(state.serviceTable)
-				return nil
-			}
-		case tcell.KeyBacktab:
-			if app.GetFocus() == state.serviceTable {
-				app.SetFocus(state.clusterList)
-				return nil
-			}
-			if app.GetFocus() == state.bucketObjectsTable {
-				app.SetFocus(state.serviceTable)
-				return nil
-			}
-		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			if app.GetFocus() == state.detailsView {
-				app.SetFocus(state.serviceTable)
-				return nil
-			}
-			if app.GetFocus() == state.serviceTable {
-				state.switchToServices(ctx)
-				return nil
-			}
-		case tcell.KeyEnter:
-			if app.GetFocus() == state.serviceTable {
-				state.switchToLogs(ctx)
-				return nil
-			}
-		}
-
-		switch event.Rune() {
-		case 'q', 'Q':
-			app.Stop()
-			return nil
-		case 'r':
-			state.refreshCurrent(ctx)
-			return nil
-		case 'w', 'W':
-			state.promptAutoRefresh()
-			return nil
-		case 'b', 'B':
-			state.switchToBuckets(ctx)
-			return nil
-		case 's', 'S':
-			state.switchToServices(ctx)
-			return nil
-		case 'o', 'O':
-			if state.modeIsBuckets() {
-				state.reloadBucketObjects(ctx)
-				state.focusBucketObjectsTable()
-				return nil
-			}
-		case 'n', 'N':
-			if state.modeIsBuckets() {
-				state.nextBucketObjectsPage(ctx)
-				return nil
-			}
-		case 'p', 'P':
-			if state.modeIsBuckets() {
-				state.previousBucketObjectsPage(ctx)
-				return nil
-			}
-		case 'a', 'A':
-			if state.modeIsBuckets() {
-				state.loadAllBucketObjects(ctx)
-				return nil
-			}
-		case 'd', 'D':
-			if app.GetFocus() == state.serviceTable && state.modeIsServices() {
-				state.requestDeletion()
-				return nil
-			}
-		case 'v', 'V':
-			state.queueUpdate(func() {
-				if state.app.GetFocus() != state.detailsView {
-					state.app.SetFocus(state.detailsView)
-				} else {
-					state.app.SetFocus(state.serviceTable)
-				}
-			})
-			return nil
-		case 'l', 'L':
-			if app.GetFocus() == state.serviceTable {
-				state.switchToLogs(ctx)
-				return nil
-			}
-		case '?':
-			state.toggleLegend()
-			return nil
-		case 'i', 'I':
-			state.showClusterInfo()
-			return nil
-		case 't', 'T':
-			state.showClusterStatus()
-			return nil
-		case '/':
-			state.initiateSearch(ctx)
+		if state.handleNavigationKey(event) {
 			return nil
 		}
-		return event
+		return state.safeInputCapture(ctx, event)
 	})
 
 	go func() {
@@ -296,6 +162,110 @@ func Run(ctx context.Context, conf *config.Config) error {
 	}
 	state.stopAutoRefresh()
 	return nil
+}
+
+func (s *uiState) handleNavigationKey(event *tcell.EventKey) bool {
+	if event == nil {
+		return false
+	}
+	if s.searchVisible || s.autoRefreshPromptVisible || s.confirmVisible || s.legendVisible {
+		return false
+	}
+
+	delta := 0
+	absolute := 0
+	absoluteSet := false
+	switch event.Key() {
+	case tcell.KeyUp:
+		delta = -1
+	case tcell.KeyDown:
+		delta = 1
+	case tcell.KeyPgUp:
+		delta = -10
+	case tcell.KeyPgDn:
+		delta = 10
+	case tcell.KeyHome:
+		absolute = 0
+		absoluteSet = true
+	case tcell.KeyEnd:
+		absolute = -1
+		absoluteSet = true
+	default:
+		return false
+	}
+
+	focus := s.app.GetFocus()
+	switch focus {
+	case s.clusterList:
+		return s.navigateClusterList(delta, absolute, absoluteSet)
+	case s.serviceTable:
+		return s.navigateTableRows(s.serviceTable, delta, absolute, absoluteSet)
+	case s.bucketObjectsTable:
+		return s.navigateTableRows(s.bucketObjectsTable, delta, absolute, absoluteSet)
+	default:
+		return false
+	}
+}
+
+func (s *uiState) navigateClusterList(delta, absolute int, absoluteSet bool) bool {
+	total := len(s.clusterNames)
+	if total <= 0 {
+		return true
+	}
+	current := s.clusterList.GetCurrentItem()
+	if current < 0 {
+		current = 0
+	}
+	target := current
+	if absoluteSet {
+		if absolute < 0 {
+			target = total - 1
+		} else {
+			target = absolute
+		}
+	} else {
+		target += delta
+	}
+	if target < 0 {
+		target = 0
+	}
+	if target >= total {
+		target = total - 1
+	}
+	s.clusterList.SetCurrentItem(target)
+	return true
+}
+
+func (s *uiState) navigateTableRows(table *tview.Table, delta, absolute int, absoluteSet bool) bool {
+	if table == nil {
+		return false
+	}
+	rowCount := table.GetRowCount()
+	if rowCount <= 1 {
+		return true
+	}
+	row, col := table.GetSelection()
+	if row < 1 {
+		row = 1
+	}
+	target := row
+	if absoluteSet {
+		if absolute < 0 {
+			target = rowCount - 1
+		} else {
+			target = absolute + 1
+		}
+	} else {
+		target += delta
+	}
+	if target < 1 {
+		target = 1
+	}
+	if target >= rowCount {
+		target = rowCount - 1
+	}
+	table.Select(target, col)
+	return true
 }
 
 func (s *uiState) selectCluster(ctx context.Context, name string) {
@@ -338,6 +308,21 @@ func (s *uiState) selectCluster(ctx context.Context, name string) {
 	s.mutex.Unlock()
 
 	s.showClusterDetails(name)
+
+	if mode == modeVolumes {
+		if name == "" {
+			s.setStatus("[red]Select a cluster to view volumes")
+			s.queueUpdate(func() {
+				s.showVolumeMessage("Select a cluster to view volumes")
+			})
+			return
+		}
+		s.queueUpdate(func() {
+			s.showVolumeMessage("Loading volumes…")
+		})
+		go s.loadVolumes(ctx, name, false)
+		return
+	}
 
 	if mode == modeBuckets {
 		if name == "" {
@@ -382,7 +367,9 @@ func (s *uiState) refreshCurrent(ctx context.Context) {
 	if name == "" {
 		return
 	}
-	if mode == modeBuckets {
+	if mode == modeVolumes {
+		go s.loadVolumes(ctx, name, true)
+	} else if mode == modeBuckets {
 		go s.loadBuckets(ctx, name, true)
 	} else if mode == modeLogs {
 		go s.loadLogs(ctx, name, s.currentLogService, true)
@@ -419,6 +406,13 @@ func (s *uiState) modeIsBuckets() bool {
 	mode := s.mode
 	s.mutex.Unlock()
 	return mode == modeBuckets
+}
+
+func (s *uiState) modeIsVolumes() bool {
+	s.mutex.Lock()
+	mode := s.mode
+	s.mutex.Unlock()
+	return mode == modeVolumes
 }
 
 func (s *uiState) modeIsLogs() bool {
@@ -467,6 +461,10 @@ func (s *uiState) handleSelection(row int, immediate bool) {
 	s.mutex.Lock()
 	mode := s.mode
 	s.mutex.Unlock()
+	if mode == modeVolumes {
+		s.handleVolumeSelection(row, immediate)
+		return
+	}
 	if mode == modeBuckets {
 		s.handleBucketSelection(row, immediate)
 		return
@@ -476,6 +474,271 @@ func (s *uiState) handleSelection(row int, immediate bool) {
 		return
 	}
 	s.handleServiceSelection(row, immediate)
+}
+
+func (s *uiState) safeInputCapture(ctx context.Context, event *tcell.EventKey) *tcell.EventKey {
+	if event == nil {
+		return nil
+	}
+	// Filter out non-printable runes early to avoid edge cases in tview.
+	if event.Key() == tcell.KeyRune && !unicode.IsPrint(event.Rune()) {
+		return nil
+	}
+	if !atomic.CompareAndSwapInt32(&s.inputHandling, 0, 1) {
+		return nil
+	}
+	defer atomic.StoreInt32(&s.inputHandling, 0)
+	defer func() {
+		if r := recover(); r != nil {
+			// Ignore panics from input handling to keep the UI responsive.
+		}
+	}()
+	return s.handleInput(ctx, event)
+}
+
+func (s *uiState) handleInput(ctx context.Context, event *tcell.EventKey) *tcell.EventKey {
+	if s.searchVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideSearch()
+			return nil
+		}
+		return event
+	}
+	if s.autoRefreshPromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideAutoRefreshPrompt()
+			return nil
+		}
+		return event
+	}
+	if s.createVolumePromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideCreateVolumePrompt()
+			return nil
+		}
+		return event
+	}
+	if s.createBucketPromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideCreateBucketPrompt()
+			return nil
+		}
+		return event
+	}
+	if s.putFilePromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hidePutFilePrompt()
+			return nil
+		}
+		return event
+	}
+	if s.quotaPromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideQuotaPrompt()
+			return nil
+		}
+		return event
+	}
+	if s.updateQuotaPromptVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideUpdateQuotaPrompt()
+			return nil
+		}
+		return event
+	}
+	if s.commandPaletteVisible {
+		if event.Key() == tcell.KeyEsc {
+			s.hideCommandPalette()
+			return nil
+		}
+		return event
+	}
+	switch event.Key() {
+	case tcell.KeyTab:
+		if s.app.GetFocus() == s.clusterList {
+			if s.modeIsServices() {
+				s.markServicePanelVisited()
+			}
+			s.app.SetFocus(s.serviceTable)
+		} else if s.modeIsBuckets() && s.app.GetFocus() == s.serviceTable {
+			s.focusBucketObjectsTable()
+		} else {
+			s.app.SetFocus(s.clusterList)
+		}
+		return nil
+	case tcell.KeyRight:
+		if s.app.GetFocus() == s.clusterList {
+			if s.modeIsServices() {
+				s.markServicePanelVisited()
+			}
+			s.app.SetFocus(s.serviceTable)
+			return nil
+		}
+		if s.modeIsBuckets() && s.app.GetFocus() == s.serviceTable {
+			s.focusBucketObjectsTable()
+			return nil
+		}
+	case tcell.KeyLeft:
+		if s.app.GetFocus() == s.serviceTable {
+			s.app.SetFocus(s.clusterList)
+			return nil
+		}
+		if s.app.GetFocus() == s.bucketObjectsTable {
+			s.app.SetFocus(s.serviceTable)
+			return nil
+		}
+	case tcell.KeyBacktab:
+		if s.app.GetFocus() == s.serviceTable {
+			s.app.SetFocus(s.clusterList)
+			return nil
+		}
+		if s.app.GetFocus() == s.bucketObjectsTable {
+			s.app.SetFocus(s.serviceTable)
+			return nil
+		}
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		if inp, ok := s.app.GetFocus().(*tview.InputField); ok && inp.GetText() == "" {
+			if s.quotaPromptVisible {
+				s.hideQuotaPrompt()
+			} else if s.updateQuotaPromptVisible {
+				s.hideUpdateQuotaPrompt()
+			} else if s.createVolumePromptVisible {
+				s.hideCreateVolumePrompt()
+			} else if s.createBucketPromptVisible {
+				s.hideCreateBucketPrompt()
+			} else if s.putFilePromptVisible {
+				s.hidePutFilePrompt()
+			} else if s.commandPaletteVisible {
+				s.hideCommandPalette()
+			} else if s.autoRefreshPromptVisible {
+				s.hideAutoRefreshPrompt()
+			}
+			return nil
+		}
+		if s.app.GetFocus() == s.detailsView {
+			s.app.SetFocus(s.serviceTable)
+			return nil
+		}
+		if s.app.GetFocus() == s.serviceTable {
+			s.switchToServices(ctx)
+			return nil
+		}
+	case tcell.KeyEnter:
+		if s.app.GetFocus() == s.serviceTable {
+			s.switchToLogs(ctx)
+			return nil
+		}
+	}
+
+	switch event.Rune() {
+	case 'q', 'Q':
+		s.app.Stop()
+		return nil
+	case 'r':
+		s.refreshCurrent(ctx)
+		return nil
+	case 'w', 'W':
+		s.promptAutoRefresh()
+		return nil
+	case 'c', 'C':
+		if s.modeIsVolumes() {
+			s.promptCreateVolume()
+			return nil
+		}
+		if s.modeIsBuckets() {
+			s.promptCreateBucket()
+			return nil
+		}
+	case 'b', 'B':
+		s.switchToBuckets(ctx)
+		return nil
+	case 'm', 'M':
+		s.showMetricsSummary()
+		return nil
+	case 's', 'S':
+		s.switchToServices(ctx)
+		return nil
+	case 'v', 'V':
+		s.switchToVolumes(ctx)
+		return nil
+	case 'f', 'F':
+		s.queueUpdate(func() {
+			if s.app.GetFocus() != s.detailsView {
+				s.app.SetFocus(s.detailsView)
+			} else {
+				s.app.SetFocus(s.serviceTable)
+			}
+		})
+		return nil
+	case 'u', 'U':
+		if s.modeIsBuckets() && s.app.GetFocus() == s.bucketObjectsTable {
+			s.promptPutFile()
+			return nil
+		}
+	case 'o', 'O':
+		if s.modeIsBuckets() {
+			s.reloadBucketObjects(ctx)
+			s.focusBucketObjectsTable()
+			return nil
+		}
+	case 'n', 'N':
+		if s.modeIsBuckets() {
+			s.nextBucketObjectsPage(ctx)
+			return nil
+		}
+	case 'p', 'P':
+		if s.modeIsBuckets() {
+			s.previousBucketObjectsPage(ctx)
+			return nil
+		}
+	case 'a', 'A':
+		if s.modeIsBuckets() {
+			s.loadAllBucketObjects(ctx)
+			return nil
+		}
+	case 'd', 'D':
+		if s.app.GetFocus() == s.serviceTable {
+			s.requestDeletion()
+			return nil
+		}
+		if s.app.GetFocus() == s.bucketObjectsTable {
+			s.requestBucketObjectDeletion()
+			return nil
+		}
+	case 'l', 'L':
+		if s.app.GetFocus() == s.serviceTable {
+			s.switchToLogs(ctx)
+			return nil
+		}
+	case '?':
+		s.toggleLegend()
+		return nil
+	case 'i', 'I':
+		s.showClusterInfo()
+		return nil
+	case 'e', 'E':
+		s.showClusterStatus()
+		return nil
+	case 'g', 'G':
+		s.showQuotaPrompt()
+		return nil
+	case 'k', 'K':
+		s.promptUpdateQuota()
+		return nil
+	case 't', 'T':
+		s.showServiceDeploymentStatus(ctx)
+		return nil
+	case 'h', 'H':
+		s.showServiceDeploymentLogs(ctx)
+		return nil
+	case ':':
+		s.showCommandPalette()
+		return nil
+	case '/':
+		s.initiateSearch(ctx)
+		return nil
+	}
+	return event
 }
 
 func (s *uiState) queueUpdate(fn func()) {
@@ -526,11 +789,26 @@ func (s *uiState) showClusterInfo() {
 	}
 
 	s.setStatus(fmt.Sprintf("[yellow]Loading info for cluster %q…", displayName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading info for %q…[-]", displayName))
+	})
 
 	go func(name string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load info for %q: %s", name, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load info for %q: %s[-]", name, errMsg))
+				})
+			}
+		}()
 		info, err := cfg.GetClusterInfo()
 		if err != nil {
 			s.setStatus(fmt.Sprintf("[red]Failed to load info for %q: %v", name, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load info for %q:\n%v[-]", name, err))
+			})
 			return
 		}
 		s.setStatus(fmt.Sprintf("[green]Cluster info loaded for %q", name))
@@ -571,11 +849,26 @@ func (s *uiState) showClusterStatus() {
 	}
 
 	s.setStatus(fmt.Sprintf("[yellow]Loading status for cluster %q…", displayName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading status for %q…[-]", displayName))
+	})
 
 	go func(name string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load status for %q: %s", name, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load status for %q: %s[-]", name, errMsg))
+				})
+			}
+		}()
 		status, err := cfg.GetClusterStatus()
 		if err != nil {
 			s.setStatus(fmt.Sprintf("[red]Failed to load status for %q: %v", name, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load status for %q:\n%v[-]", name, err))
+			})
 			return
 		}
 		s.setStatus(fmt.Sprintf("[green]Cluster status loaded for %q", name))
@@ -584,6 +877,624 @@ func (s *uiState) showClusterStatus() {
 			s.detailsView.SetText(text)
 		})
 	}(displayName, clusterCfg)
+}
+
+func (s *uiState) showMetricsSummary() {
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	trimmedName := strings.TrimSpace(clusterName)
+	if trimmedName == "" {
+		s.setStatus("[red]Select a cluster to view metrics")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil && trimmedName != clusterName {
+		clusterCfg = s.conf.Oscar[trimmedName]
+	}
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", trimmedName))
+		return
+	}
+
+	displayName := trimmedName
+	if displayName == "" {
+		displayName = clusterName
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading metrics for cluster %q…", displayName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading metrics for %q…[-]", displayName))
+	})
+
+	go func(name string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load metrics for %q: %s", name, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load metrics for %q: %s[-]", name, errMsg))
+				})
+			}
+		}()
+		summary, err := cluster.GetMetricsSummary(cfg, "", "")
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load metrics for %q: %v", name, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load metrics for %q:\n%v[-]", name, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Metrics loaded for %q", name))
+		text := formatMetricsSummary(name, summary)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(displayName, clusterCfg)
+}
+
+func (s *uiState) showQuotaPrompt() {
+	s.mutex.Lock()
+	if s.quotaPromptVisible || s.searchVisible || s.autoRefreshPromptVisible ||
+		s.confirmVisible || s.legendVisible || s.pages == nil ||
+		s.currentCluster == "" {
+		s.mutex.Unlock()
+		return
+	}
+	s.quotaPromptVisible = true
+	s.quotaFocus = s.app.GetFocus()
+	container := s.statusContainer
+	clusterCfg := s.conf.Oscar[s.currentCluster]
+	if clusterCfg == nil {
+		s.mutex.Unlock()
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", s.currentCluster))
+		s.hideQuotaPrompt()
+		return
+	}
+	usesBasicAuth := clusterCfg.AuthUser != "" && clusterCfg.AuthPassword != ""
+	s.mutex.Unlock()
+
+	if !usesBasicAuth {
+		s.hideQuotaPrompt()
+		s.performFetchQuota(s.currentCluster, "", clusterCfg)
+		return
+	}
+
+	input := tview.NewInputField()
+	input.SetLabel("User ID: ")
+	input.SetFieldWidth(40)
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			uid := strings.TrimSpace(input.GetText())
+			if uid == "" {
+				s.setStatus("[red]Please enter a valid user ID for basic auth clusters")
+				s.queueUpdate(func() {
+					s.detailsView.SetText("[red]User ID is required when using auth_user/auth_password authentication.\nEnter a non-empty user ID to look up quotas.[-]")
+				})
+				return
+			}
+			s.hideQuotaPrompt()
+			s.setStatus(fmt.Sprintf("[green]Loading quota for %q...", displayUserID(uid)))
+			s.performFetchQuota(s.currentCluster, uid, clusterCfg)
+		} else if key == tcell.KeyEscape {
+			s.hideQuotaPrompt()
+		}
+	})
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Quota Lookup")
+		input.SetBorder(false)
+		container.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) hideQuotaPrompt() {
+	s.mutex.Lock()
+	if !s.quotaPromptVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.quotaPromptVisible = false
+	focus := s.quotaFocus
+	s.quotaFocus = nil
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Status")
+		container.AddItem(s.statusView, 0, 1, false)
+		s.statusView.SetText(s.decorateStatusText(statusHelpText))
+	})
+	if focus != nil {
+		s.app.SetFocus(focus)
+	}
+}
+
+func (s *uiState) performFetchQuota(name string, userID string, cfg *cluster.Cluster) {
+	displayName := name
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading quota for %q…", displayName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading quota for %q…[-]", displayName))
+	})
+
+	go func(name, uid string, clusterCfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load quota for %q: %s", name, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load quota for %q: %s[-]", name, errMsg))
+				})
+			}
+		}()
+		quota, err := cluster.GetQuota(clusterCfg, uid)
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load quota for %q: %v", name, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load quota for %q:\n%v[-]", name, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Quota loaded for %q", name))
+		text := formatQuota(name, quota)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(displayName, userID, cfg)
+}
+
+func displayUserID(userID string) string {
+	if userID == "" {
+		return "all users"
+	}
+	return userID
+}
+
+func (s *uiState) promptUpdateQuota() {
+	s.mutex.Lock()
+	if s.updateQuotaPromptVisible || s.quotaPromptVisible || s.searchVisible ||
+		s.autoRefreshPromptVisible || s.confirmVisible || s.legendVisible ||
+		s.pages == nil || s.currentCluster == "" {
+		s.mutex.Unlock()
+		return
+	}
+	clusterCfg := s.conf.Oscar[s.currentCluster]
+	if clusterCfg == nil {
+		s.mutex.Unlock()
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", s.currentCluster))
+		return
+	}
+	if clusterCfg.AuthUser == "" || clusterCfg.AuthPassword == "" {
+		s.mutex.Unlock()
+		s.setStatus("[red]Quota update is only available for clusters with auth_user/auth_password")
+		return
+	}
+	s.updateQuotaPromptVisible = true
+	s.updateQuotaStep = 0
+	s.updateQuotaFocus = s.app.GetFocus()
+	s.mutex.Unlock()
+
+	s.promptUpdateQuotaUserID(clusterCfg)
+}
+
+func (s *uiState) promptUpdateQuotaUserID(cfg *cluster.Cluster) {
+	input := tview.NewInputField()
+	input.SetLabel("User ID: ")
+	input.SetFieldWidth(40)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			return nil
+		}
+		return event
+	})
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			uid := strings.TrimSpace(input.GetText())
+			if uid == "" {
+				s.setStatus("[red]User ID cannot be empty")
+				return
+			}
+			s.mutex.Lock()
+			s.updateQuotaUserID = uid
+			s.mutex.Unlock()
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaCPU(cfg)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter user ID to update quota:[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (user ID)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) promptUpdateQuotaCPU(cfg *cluster.Cluster) {
+	s.mutex.Lock()
+	s.updateQuotaPromptVisible = true
+	s.mutex.Unlock()
+
+	input := tview.NewInputField()
+	input.SetLabel("CPU quota (e.g. 2, 500m, empty=unchanged): ")
+	input.SetFieldWidth(30)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaUserID(cfg)
+			return nil
+		}
+		return event
+	})
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			cpu := strings.TrimSpace(input.GetText())
+			s.mutex.Lock()
+			s.updateQuotaCPU = cpu
+			s.mutex.Unlock()
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaMemory(cfg)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter CPU quota (or leave empty to keep current):[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (CPU)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) promptUpdateQuotaMemory(cfg *cluster.Cluster) {
+	s.mutex.Lock()
+	s.updateQuotaPromptVisible = true
+	s.mutex.Unlock()
+
+	s.mutex.Lock()
+	uid := s.updateQuotaUserID
+	cpu := s.updateQuotaCPU
+	s.mutex.Unlock()
+
+	input := tview.NewInputField()
+	input.SetLabel("Memory quota (e.g. 2Gi, 512Mi, empty=unchanged): ")
+	input.SetFieldWidth(30)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaCPU(cfg)
+			return nil
+		}
+		return event
+	})
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			mem := strings.TrimSpace(input.GetText())
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaVolumeDisk(cfg, uid, cpu, mem)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter memory quota (or leave empty to keep current):[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (Memory)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) promptUpdateQuotaVolumeDisk(cfg *cluster.Cluster, uid, cpu, mem string) {
+	s.mutex.Lock()
+	s.updateQuotaPromptVisible = true
+	s.mutex.Unlock()
+
+	input := tview.NewInputField()
+	input.SetLabel("Volume disk (e.g. 5Gi, empty=unchanged): ")
+	input.SetFieldWidth(30)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaMemory(cfg)
+			return nil
+		}
+		return event
+	})
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			volDisk := strings.TrimSpace(input.GetText())
+			s.hideUpdateQuotaPrompt()
+			s.mutex.Lock()
+			s.updateQuotaVolumeDisk = volDisk
+			s.mutex.Unlock()
+			s.promptUpdateQuotaVolumeCount(cfg, uid, cpu, mem, volDisk)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter volume disk quota (or leave empty to keep current):[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (Volume Disk)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) promptUpdateQuotaVolumeCount(cfg *cluster.Cluster, uid, cpu, mem, volDisk string) {
+	s.mutex.Lock()
+	s.updateQuotaPromptVisible = true
+	s.mutex.Unlock()
+
+	input := tview.NewInputField()
+	input.SetLabel("Volume count (e.g. 3, empty=unchanged): ")
+	input.SetFieldWidth(30)
+	input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) && input.GetText() == "" {
+			s.hideUpdateQuotaPrompt()
+			s.promptUpdateQuotaVolumeDisk(cfg, uid, cpu, mem)
+			return nil
+		}
+		return event
+	})
+	input.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			volCount := strings.TrimSpace(input.GetText())
+			s.hideUpdateQuotaPrompt()
+			s.performUpdateQuota(cfg, uid, cpu, mem, volDisk, volCount)
+		} else if key == tcell.KeyEscape {
+			s.hideUpdateQuotaPrompt()
+		}
+	})
+	s.setStatus("[yellow]Enter volume count quota (or leave empty to keep current):[-]")
+	s.queueUpdate(func() {
+		s.statusContainer.Clear()
+		s.statusContainer.SetTitle("Update Quota (Volume Count)")
+		input.SetBorder(false)
+		s.statusContainer.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) hideUpdateQuotaPrompt() {
+	s.mutex.Lock()
+	if !s.updateQuotaPromptVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.updateQuotaPromptVisible = false
+	focus := s.updateQuotaFocus
+	s.updateQuotaFocus = nil
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Status")
+		container.AddItem(s.statusView, 0, 1, false)
+		s.statusView.SetText(s.decorateStatusText(statusHelpText))
+	})
+	if focus != nil {
+		s.app.SetFocus(focus)
+	}
+}
+
+func (s *uiState) performUpdateQuota(cfg *cluster.Cluster, uid, cpu, mem, volDisk, volCount string) {
+	clusterName := s.currentCluster
+	s.setStatus(fmt.Sprintf("[yellow]Updating quota for user %q...", uid))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Updating quota for user %q...[-]", uid))
+	})
+
+	var volUpdate *types.VolumeQuotaUpdate
+	if volDisk != "" || volCount != "" {
+		volUpdate = &types.VolumeQuotaUpdate{
+			Disk:    volDisk,
+			Volumes: volCount,
+		}
+	}
+
+	go func(name, userID, cpuVal, memVal string, vu *types.VolumeQuotaUpdate, clusterCfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to update quota: %s", errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to update quota: %s[-]", errMsg))
+				})
+			}
+		}()
+		quota, err := cluster.UpdateQuota(clusterCfg, userID, cpuVal, memVal, vu)
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to update quota for %q: %v", userID, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to update quota for %q:\n%v[-]", userID, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Quota updated for user %q", userID))
+		text := formatQuota(name, quota)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(clusterName, uid, cpu, mem, volUpdate, cfg)
+}
+
+func (s *uiState) showServiceDeploymentStatus(ctx context.Context) {
+	if s.searchVisible {
+		s.hideSearch()
+	}
+
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	if s.mode != modeServices {
+		s.mutex.Unlock()
+		s.setStatus("[red]Deployment status is only available in services view")
+		return
+	}
+
+	row, _ := s.serviceTable.GetSelection()
+	if row <= 0 || row-1 >= len(s.currentServices) {
+		s.mutex.Unlock()
+		s.setStatus("[red]Select a service to view deployment status")
+		return
+	}
+	svcPtr := s.currentServices[row-1]
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	if svcPtr == nil {
+		s.setStatus("[red]Select a service to view deployment status")
+		return
+	}
+	serviceName := strings.TrimSpace(svcPtr.Name)
+	if serviceName == "" {
+		s.setStatus("[red]Select a service to view deployment status")
+		return
+	}
+
+	clusterName = strings.TrimSpace(clusterName)
+	if clusterName == "" {
+		s.setStatus("[red]Select a cluster to view deployment status")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading deployment status for %q…", serviceName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading deployment status for %q…[-]", serviceName))
+	})
+
+	go func(svcName, clName string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load deployment status for %q: %s", svcName, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load deployment status for %q: %s[-]", svcName, errMsg))
+				})
+			}
+		}()
+		ds, err := service.GetDeploymentStatus(cfg, svcName)
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load deployment status for %q: %v", svcName, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load deployment status for %q:\n%v[-]", svcName, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Deployment status loaded for %q", svcName))
+		text := formatDeploymentStatus(svcName, ds)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(serviceName, clusterName, clusterCfg)
+}
+
+func (s *uiState) showServiceDeploymentLogs(ctx context.Context) {
+	if s.searchVisible {
+		s.hideSearch()
+	}
+
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible {
+		s.mutex.Unlock()
+		return
+	}
+	if s.mode != modeServices {
+		s.mutex.Unlock()
+		s.setStatus("[red]Deployment logs are only available in services view")
+		return
+	}
+
+	row, _ := s.serviceTable.GetSelection()
+	if row <= 0 || row-1 >= len(s.currentServices) {
+		s.mutex.Unlock()
+		s.setStatus("[red]Select a service to view deployment logs")
+		return
+	}
+	svcPtr := s.currentServices[row-1]
+	clusterName := s.currentCluster
+	s.mutex.Unlock()
+
+	if svcPtr == nil {
+		s.setStatus("[red]Select a service to view deployment logs")
+		return
+	}
+	serviceName := strings.TrimSpace(svcPtr.Name)
+	if serviceName == "" {
+		s.setStatus("[red]Select a service to view deployment logs")
+		return
+	}
+
+	clusterName = strings.TrimSpace(clusterName)
+	if clusterName == "" {
+		s.setStatus("[red]Select a cluster to view deployment logs")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+
+	s.setStatus(fmt.Sprintf("[yellow]Loading deployment logs for %q…", serviceName))
+	s.queueUpdate(func() {
+		s.detailsView.SetText(fmt.Sprintf("[yellow]Loading deployment logs for %q…[-]", serviceName))
+	})
+
+	go func(svcName, clName string, cfg *cluster.Cluster) {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("unexpected error: %v", r)
+				s.setStatus(fmt.Sprintf("[red]Failed to load deployment logs for %q: %s", svcName, errMsg))
+				s.queueUpdate(func() {
+					s.detailsView.SetText(fmt.Sprintf("[red]Failed to load deployment logs for %q: %s[-]", svcName, errMsg))
+				})
+			}
+		}()
+		dl, err := service.GetDeploymentLogs(cfg, svcName)
+		if err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to load deployment logs for %q: %v", svcName, err))
+			s.queueUpdate(func() {
+				s.detailsView.SetText(fmt.Sprintf("[red]Failed to load deployment logs for %q:\n%v[-]", svcName, err))
+			})
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Deployment logs loaded for %q", svcName))
+		text := formatDeploymentLogs(dl)
+		s.queueUpdate(func() {
+			s.detailsView.SetText(text)
+		})
+	}(serviceName, clusterName, clusterCfg)
 }
 
 func formatClusterStatus(clusterName string, status cluster.StatusInfo) string {

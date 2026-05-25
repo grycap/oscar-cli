@@ -9,22 +9,27 @@ import (
 
 	"github.com/grycap/oscar-cli/pkg/config"
 	"github.com/grycap/oscar-cli/pkg/storage"
-	"github.com/grycap/oscar/v3/pkg/types"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 const legendText = `[yellow]Navigation[-]
   ↑/↓  Move selection
   ←/→ or Tab  Switch pane
-  v  Focus details panel
+  f  Focus details panel
 
 [yellow]Actions[-]
   r  Refresh current view
-  d  Delete selected item
+  d or Del  Delete selected service/bucket/volume/object
   i  Show cluster info
   l  Open logs panel
   w  Configure auto refresh
   b  Switch to buckets view
   s  Switch to services view
+  v  Switch to volumes view
+  c  Create bucket/volume
+  u  Upload file (bucket objects view)
+  m  Show cluster metrics
+  e  Show cluster status
   Enter  Focus bucket objects (bucket view)
   o  Reload bucket objects (bucket view)
   n/p  Next/previous bucket objects page
@@ -32,7 +37,7 @@ const legendText = `[yellow]Navigation[-]
   q  Quit
   ?  Toggle this help`
 
-const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d[::-] Delete selection · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
+const statusHelpText = "[yellow]Keys: [::b]q[::-] Quit · [::b]r[::-] Refresh · [::b]d/Del[::-] Delete svc/bucket/volume/object · [::b]i[::-] Cluster info · [::b]l[::-] Logs panel · [::b]w[::-] Auto refresh · [::b]b[::-] Buckets · [::b]s[::-] Services · [::b]v[::-] Volumes · [::b]c[::-] Create bucket/volume · [::b]u[::-] Upload file · [::b]m[::-] Metrics · [::b]e[::-] Status · [::b]g[::-] Quota · [::b]k[::-] Update quota · [::b]t[::-] Deploy status · [::b]h[::-] Deploy logs · [::b]::[::-] Command palette · [::b]f[::-] Focus details · [::b]Enter/n/p/a/o[::-] Bucket objects · [::b]?[::-] Help · [::b]←/→[::-] Switch pane · [::b]/[::-] Search"
 
 type panelMode int
 
@@ -40,6 +45,7 @@ const (
 	modeServices panelMode = iota
 	modeBuckets
 	modeLogs
+	modeVolumes
 )
 
 var (
@@ -47,6 +53,7 @@ var (
 	bucketHeaders       = []string{"Name", "Visibility", "Owner"}
 	bucketObjectHeaders = []string{"Name", "Size (B)", "Last Modified"}
 	logHeaders          = []string{"Job", "Status", "Started", "Finished"}
+	volumeHeaders       = []string{"Name", "Size", "Status", "Attachments"}
 )
 
 type searchTarget int
@@ -57,6 +64,7 @@ const (
 	searchTargetServices
 	searchTargetLogs
 	searchTargetBuckets
+	searchTargetVolumes
 	searchTargetDetails
 )
 
@@ -90,6 +98,29 @@ type uiState struct {
 	confirmVisible           bool
 	savedFocus               tview.Primitive
 	mode                     panelMode
+	volumes                  []types.ManagedVolume
+	volumeCancel             context.CancelFunc
+	volumeSeq                int
+	volumeCluster            string
+	createVolumePromptVisible bool
+	createVolumeName         string
+	createVolumeFocus        tview.Primitive
+	createBucketPromptVisible bool
+	createBucketName         string
+	createBucketFocus        tview.Primitive
+	putFilePromptVisible     bool
+	putFileFocus             tview.Primitive
+	quotaPromptVisible       bool
+	quotaFocus               tview.Primitive
+	updateQuotaPromptVisible bool
+	updateQuotaStep          int
+	updateQuotaUserID        string
+	updateQuotaCPU           string
+	updateQuotaVolumeDisk    string
+	updateQuotaVolumeCount   string
+	updateQuotaFocus         tview.Primitive
+	commandPaletteVisible    bool
+	commandPaletteFocus      tview.Primitive
 	bucketInfos              []*storage.BucketInfo
 	bucketCancel             context.CancelFunc
 	bucketSeq                int
@@ -122,6 +153,7 @@ type uiState struct {
 	currentLogJobKey         string
 	currentLogService        string
 	currentLogCluster        string
+	inputHandling            int32
 }
 
 type bucketObjectState struct {

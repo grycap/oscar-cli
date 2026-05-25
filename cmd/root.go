@@ -52,6 +52,11 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(makeApplyCmd())
 	cmd.AddCommand(makeInteractiveCmd())
 	cmd.AddCommand(makeDeleteCmd())
+	cmd.AddCommand(makeHealthCmd())
+	cmd.AddCommand(makeFederationCmd())
+	cmd.AddCommand(makeVolumeCmd())
+	cmd.AddCommand(makeMetricsCmd())
+	cmd.AddCommand(makeQuotaCmd())
 
 	return cmd
 }
