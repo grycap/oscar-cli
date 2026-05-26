@@ -591,9 +591,11 @@ func UpdateBucket(c *cluster.Cluster, name, visibility string, allowedUsers []st
 	if err != nil {
 		return cluster.ErrParsingEndpoint
 	}
-	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmed)
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets")
 
-	payload := map[string]interface{}{}
+	payload := map[string]interface{}{
+		"bucket_name": trimmed,
+	}
 	if visibility != "" {
 		payload["visibility"] = visibility
 	}
