@@ -148,6 +148,120 @@ func TestServiceRunCommandFileInput(t *testing.T) {
 	}
 }
 
+func TestServiceRunCommandDecodeOutputIgnoresLogs(t *testing.T) {
+	const (
+		clusterName  = "run-decode-cluster"
+		serviceName  = "decoder"
+		serviceToken = "decode-token"
+		payload      = "ping"
+		expected     = "decoded result\nwith multiple lines\n"
+	)
+
+	response := strings.Join([]string{
+		"2026-05-28 06:38:44,746 - supervisor - INFO - Reading storage configuration",
+		"2026-05-28 06:38:55,157 - supervisor - INFO - Creating response",
+		base64.StdEncoding.EncodeToString([]byte(expected)),
+		"",
+	}, "\n")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/system/services/"+serviceName:
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(&types.Service{
+				Name:  serviceName,
+				Token: serviceToken,
+			}); err != nil {
+				t.Fatalf("encoding service response: %v", err)
+			}
+		case r.Method == http.MethodPost && r.URL.Path == "/run/"+serviceName:
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, response)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configFile := writeConfigFile(t, clusterName, server.URL)
+	outputFile := filepath.Join(t.TempDir(), "result.txt")
+
+	stdout, stderr, err := runCommand(t,
+		"service", "--config", configFile,
+		"run", serviceName,
+		"--cluster", clusterName,
+		"--text-input", payload,
+		"--output", outputFile,
+		"--decode-output",
+	)
+	if err != nil {
+		t.Fatalf("service run command returned error: %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout when output file is set, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+
+	content, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("reading output file: %v", err)
+	}
+	if string(content) != expected {
+		t.Fatalf("expected decoded output %q, got %q", expected, content)
+	}
+}
+
+func TestServiceRunCommandWithoutDecodeOutputKeepsRawResponseWithLogs(t *testing.T) {
+	const (
+		clusterName  = "run-raw-cluster"
+		serviceName  = "raw"
+		serviceToken = "raw-token"
+		payload      = "ping"
+		expected     = "decoded result"
+	)
+
+	response := "log line\n" + base64.StdEncoding.EncodeToString([]byte(expected)) + "\n"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/system/services/"+serviceName:
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(&types.Service{
+				Name:  serviceName,
+				Token: serviceToken,
+			}); err != nil {
+				t.Fatalf("encoding service response: %v", err)
+			}
+		case r.Method == http.MethodPost && r.URL.Path == "/run/"+serviceName:
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, response)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	configFile := writeConfigFile(t, clusterName, server.URL)
+
+	stdout, stderr, err := runCommand(t,
+		"service", "--config", configFile,
+		"run", serviceName,
+		"--cluster", clusterName,
+		"--text-input", payload,
+	)
+	if err != nil {
+		t.Fatalf("service run command returned error: %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if stdout != response {
+		t.Fatalf("expected raw response %q, got %q", response, stdout)
+	}
+}
+
 func TestServiceRunCommandInputValidation(t *testing.T) {
 	const clusterName = "run-validate-cluster"
 
