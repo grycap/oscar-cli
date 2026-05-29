@@ -225,6 +225,10 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 	if err != nil {
 		return fmt.Errorf("cannot encode the service \"%s\", please check its definition", svc.Name)
 	}
+	svcBytes, err = normalizeExposePortLists(svcBytes)
+	if err != nil {
+		return fmt.Errorf("cannot encode the service \"%s\", please check its definition", svc.Name)
+	}
 	reqBody := bytes.NewBuffer(svcBytes)
 
 	// Make the request
@@ -355,4 +359,34 @@ func JobService(c *cluster.Cluster, name string, token string, endpoint string, 
 
 func getScriptPath(scriptPath string, servicePath string) string {
 	return filepath.Dir(servicePath) + "/" + scriptPath
+}
+
+func normalizeExposePortLists(svcBytes []byte) ([]byte, error) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(svcBytes, &payload); err != nil {
+		return nil, err
+	}
+
+	expose, ok := payload["expose"].(map[string]interface{})
+	if !ok {
+		return svcBytes, nil
+	}
+
+	if apiPort, ok := expose["api_port"].(float64); ok {
+		if apiPort == 0 {
+			delete(expose, "api_port")
+		} else {
+			expose["api_port"] = []int{int(apiPort)}
+		}
+	}
+
+	if nodePort, ok := expose["nodePort"].(float64); ok {
+		if nodePort == 0 {
+			delete(expose, "nodePort")
+		} else {
+			expose["nodePort"] = []int{int(nodePort)}
+		}
+	}
+
+	return json.Marshal(payload)
 }

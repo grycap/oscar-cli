@@ -150,6 +150,49 @@ func TestApplyService(t *testing.T) {
 	}
 }
 
+func TestNormalizeExposePortListsOmitsZeroNodePort(t *testing.T) {
+	payload := []byte(`{"name":"demo","expose":{"min_scale":0,"max_scale":0,"nodePort":0}}`)
+
+	normalized, err := normalizeExposePortLists(payload)
+	if err != nil {
+		t.Fatalf("normalizeExposePortLists returned error: %v", err)
+	}
+
+	var got map[string]interface{}
+	if err := json.Unmarshal(normalized, &got); err != nil {
+		t.Fatalf("decoding normalized payload: %v", err)
+	}
+	expose := got["expose"].(map[string]interface{})
+	if _, ok := expose["nodePort"]; ok {
+		t.Fatalf("expected zero nodePort to be omitted, got %v", expose["nodePort"])
+	}
+}
+
+func TestNormalizeExposePortListsConvertsScalarPorts(t *testing.T) {
+	payload := []byte(`{"name":"demo","expose":{"api_port":8080,"nodePort":30080}}`)
+
+	normalized, err := normalizeExposePortLists(payload)
+	if err != nil {
+		t.Fatalf("normalizeExposePortLists returned error: %v", err)
+	}
+
+	var got map[string]interface{}
+	if err := json.Unmarshal(normalized, &got); err != nil {
+		t.Fatalf("decoding normalized payload: %v", err)
+	}
+	expose := got["expose"].(map[string]interface{})
+
+	apiPort, ok := expose["api_port"].([]interface{})
+	if !ok || len(apiPort) != 1 || apiPort[0].(float64) != 8080 {
+		t.Fatalf("expected api_port [8080], got %#v", expose["api_port"])
+	}
+
+	nodePort, ok := expose["nodePort"].([]interface{})
+	if !ok || len(nodePort) != 1 || nodePort[0].(float64) != 30080 {
+		t.Fatalf("expected nodePort [30080], got %#v", expose["nodePort"])
+	}
+}
+
 func TestRunServiceUsesServiceToken(t *testing.T) {
 	const (
 		clusterName  = "cluster"
