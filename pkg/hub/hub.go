@@ -505,16 +505,45 @@ func (c *Client) FetchFDL(ctx context.Context, slug string) (*service.FDL, error
 		return nil, err
 	}
 
+	rawFDL, err = c.renderRemoteFDL(ctx, repoPath, rawFDL)
+	if err != nil {
+		return nil, err
+	}
+
 	var parsed service.FDL
 	if err := yaml.Unmarshal(rawFDL, &parsed); err != nil {
 		return nil, fmt.Errorf("parsing FDL: %w", err)
 	}
+	service.PreserveExposeAuthType(rawFDL, &parsed)
 
 	if err := c.embedArtifacts(ctx, repoPath, &parsed); err != nil {
 		return nil, err
 	}
 
 	return &parsed, nil
+}
+
+func (c *Client) renderRemoteFDL(ctx context.Context, repoPath string, rawFDL []byte) ([]byte, error) {
+	if !strings.Contains(string(rawFDL), "{{") {
+		return rawFDL, nil
+	}
+
+	var crate *ROCrate
+	rawMetadata, err := c.getFile(ctx, path.Join(repoPath, metadataFile))
+	if err == nil {
+		crate, err = ParseROCrate(rawMetadata)
+		if err != nil {
+			return nil, fmt.Errorf("parsing metadata %s: %w", path.Join(repoPath, metadataFile), err)
+		}
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	return renderFDLTemplate(rawFDL, crate, remoteTemplateResolver{
+		ctx:      ctx,
+		client:   c,
+		repoPath: repoPath,
+	})
 }
 
 func selectFDLFile(slug string, entries []githubContent) (string, error) {
@@ -547,11 +576,11 @@ func (c *Client) embedArtifacts(ctx context.Context, repoPath string, fdl *servi
 
 			scriptPath := strings.TrimSpace(svc.Script)
 			if scriptPath != "" {
-				clean := path.Clean(scriptPath)
-				if strings.HasPrefix(clean, "..") {
-					return fmt.Errorf("script path %s escapes service directory", scriptPath)
+				resolved, err := resolveRepoPath(repoPath, scriptPath)
+				if err != nil {
+					return err
 				}
-				raw, err := c.getFile(ctx, path.Join(repoPath, clean))
+				raw, err := c.getFile(ctx, resolved)
 				if err != nil {
 					return fmt.Errorf("fetching script %s: %w", scriptPath, err)
 				}
@@ -577,7 +606,7 @@ func LoadLocalFDL(localRoot, slug string) (*service.FDL, error) {
 	if !info.IsDir() {
 		ext := strings.ToLower(filepath.Ext(localRoot))
 		if ext == ".yaml" || ext == ".yml" {
-			return readFDLFromFile(localRoot)
+			return readFDLFromFile(localRoot, filepath.Dir(localRoot))
 		}
 		return nil, fmt.Errorf("unsupported file %s: expected an FDL (.yaml/.yml)", localRoot)
 	}
@@ -600,7 +629,8 @@ func LoadLocalFDL(localRoot, slug string) (*service.FDL, error) {
 			lastErr = err
 			continue
 		}
-		return readFDLFromFile(fdlPath)
+		packageRoot := inferLocalPackageRoot(localRoot, filepath.Dir(fdlPath))
+		return readFDLFromFile(fdlPath, packageRoot)
 	}
 
 	if lastErr != nil {
@@ -632,18 +662,23 @@ func selectLocalFDLFile(dir, slug string, entries []fs.DirEntry) (string, error)
 	return "", fmt.Errorf("fdl file not found in %s", dir)
 }
 
-func readFDLFromFile(path string) (*service.FDL, error) {
-	content, err := os.ReadFile(path)
+func readFDLFromFile(fdlPath, rootDir string) (*service.FDL, error) {
+	content, err := os.ReadFile(fdlPath)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read FDL %s: %w", path, err)
+		return nil, fmt.Errorf("cannot read FDL %s: %w", fdlPath, err)
+	}
+
+	baseDir := filepath.Dir(fdlPath)
+	content, err = renderLocalFDL(content, rootDir, baseDir)
+	if err != nil {
+		return nil, err
 	}
 
 	fdl := &service.FDL{}
 	if err := yaml.Unmarshal(content, fdl); err != nil {
-		return nil, fmt.Errorf("the FDL file %s is not valid, please check its definition", path)
+		return nil, fmt.Errorf("the FDL file %s is not valid, please check its definition", fdlPath)
 	}
-
-	baseDir := filepath.Dir(path)
+	service.PreserveExposeAuthType(content, fdl)
 
 	for _, element := range fdl.Functions.Oscar {
 		for clusterID, svc := range element {
@@ -653,7 +688,10 @@ func readFDLFromFile(path string) (*service.FDL, error) {
 
 			scriptPath := svc.Script
 			if !filepath.IsAbs(scriptPath) {
-				scriptPath = filepath.Join(baseDir, scriptPath)
+				scriptPath, err = resolveLocalPath(rootDir, baseDir, scriptPath)
+				if err != nil {
+					return nil, err
+				}
 			}
 			script, err := os.ReadFile(scriptPath)
 			if err != nil {
@@ -668,6 +706,29 @@ func readFDLFromFile(path string) (*service.FDL, error) {
 	}
 
 	return fdl, nil
+}
+
+func renderLocalFDL(rawFDL []byte, rootDir, baseDir string) ([]byte, error) {
+	if !strings.Contains(string(rawFDL), "{{") {
+		return rawFDL, nil
+	}
+
+	var crate *ROCrate
+	metadataPath := filepath.Join(baseDir, metadataFile)
+	rawMetadata, err := os.ReadFile(metadataPath)
+	if err == nil {
+		crate, err = ParseROCrate(rawMetadata)
+		if err != nil {
+			return nil, fmt.Errorf("parsing metadata %s: %w", metadataPath, err)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+
+	return renderFDLTemplate(rawFDL, crate, localTemplateResolver{
+		rootDir: rootDir,
+		baseDir: baseDir,
+	})
 }
 
 func findDatasetEntity(entities []map[string]any) map[string]any {

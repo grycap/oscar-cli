@@ -33,6 +33,9 @@ functions:
         script: script.sh
         cpu: 100m
         memory: 256Mi
+        expose:
+          set_auth: true
+          auth_type: forward
         volume:
           size: 10Gi
           mount_path: /data
@@ -66,6 +69,9 @@ functions:
 	}
 	if svc.Volume.MountPath != "/data" {
 		t.Fatalf("expected volume mount path /data, got %s", svc.Volume.MountPath)
+	}
+	if svc.Annotations[exposeAuthTypeAnnotation] != "forward" {
+		t.Fatalf("expected preserved expose auth_type forward, got %q", svc.Annotations[exposeAuthTypeAnnotation])
 	}
 }
 
@@ -147,6 +153,97 @@ func TestApplyService(t *testing.T) {
 	}
 	if received.Volume.MountPath != "/data" {
 		t.Fatalf("expected applied volume mount path /data, got %s", received.Volume.MountPath)
+	}
+}
+
+func TestApplyServiceInjectsExposeAuthType(t *testing.T) {
+	const authType = "forward"
+	var received map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/system/services" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatalf("decoding payload: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+
+	c := &cluster.Cluster{
+		Endpoint:  server.URL,
+		SSLVerify: true,
+	}
+	err := ApplyService(&types.Service{
+		Name: "demo",
+		Expose: types.Expose{
+			SetAuth: true,
+		},
+		Annotations: map[string]string{
+			exposeAuthTypeAnnotation: authType,
+		},
+	}, c, http.MethodPost)
+	if err != nil {
+		t.Fatalf("ApplyService returned error: %v", err)
+	}
+
+	expose, ok := received["expose"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected expose payload, got %#v", received["expose"])
+	}
+	if expose["auth_type"] != authType {
+		t.Fatalf("expected expose.auth_type %q, got %#v", authType, expose["auth_type"])
+	}
+	annotations, ok := received["annotations"].(map[string]any)
+	if ok {
+		if _, found := annotations[exposeAuthTypeAnnotation]; found {
+			t.Fatalf("internal expose auth type annotation leaked in payload")
+		}
+	}
+}
+
+func TestNormalizeExposePortListsOmitsZeroNodePort(t *testing.T) {
+	payload := []byte(`{"name":"demo","expose":{"min_scale":0,"max_scale":0,"nodePort":0}}`)
+
+	normalized, err := normalizeExposePortLists(payload)
+	if err != nil {
+		t.Fatalf("normalizeExposePortLists returned error: %v", err)
+	}
+
+	var got map[string]interface{}
+	if err := json.Unmarshal(normalized, &got); err != nil {
+		t.Fatalf("decoding normalized payload: %v", err)
+	}
+	expose := got["expose"].(map[string]interface{})
+	if _, ok := expose["nodePort"]; ok {
+		t.Fatalf("expected zero nodePort to be omitted, got %v", expose["nodePort"])
+	}
+}
+
+func TestNormalizeExposePortListsConvertsScalarPorts(t *testing.T) {
+	payload := []byte(`{"name":"demo","expose":{"api_port":8080,"nodePort":30080}}`)
+
+	normalized, err := normalizeExposePortLists(payload)
+	if err != nil {
+		t.Fatalf("normalizeExposePortLists returned error: %v", err)
+	}
+
+	var got map[string]interface{}
+	if err := json.Unmarshal(normalized, &got); err != nil {
+		t.Fatalf("decoding normalized payload: %v", err)
+	}
+	expose := got["expose"].(map[string]interface{})
+
+	apiPort, ok := expose["api_port"].([]interface{})
+	if !ok || len(apiPort) != 1 || apiPort[0].(float64) != 8080 {
+		t.Fatalf("expected api_port [8080], got %#v", expose["api_port"])
+	}
+
+	nodePort, ok := expose["nodePort"].([]interface{})
+	if !ok || len(nodePort) != 1 || nodePort[0].(float64) != 30080 {
+		t.Fatalf("expected nodePort [30080], got %#v", expose["nodePort"])
 	}
 }
 

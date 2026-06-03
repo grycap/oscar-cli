@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/grycap/oscar-cli/v2/pkg/hub"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
+	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 func TestClientListServices(t *testing.T) {
@@ -201,6 +205,257 @@ functions:
 
 	if !serviceFound {
 		t.Fatalf("expected at least one service in FDL")
+	}
+}
+
+func TestFetchFDLRendersAgentTemplate(t *testing.T) {
+	const (
+		slug          = "agents/pdf-summarizer"
+		soulContent   = "# PDF Summarizer Soul\n\nSummarize PDFs carefully.\n"
+		skillContent  = "# PDF Extract Skill\n\nUse pdftotext when available.\n"
+		scriptContent = "#!/bin/sh\necho agent\n"
+		fdlContent    = `
+functions:
+  oscar:
+    - default:
+        name: pdf-summarizer
+        image: ghcr.io/demo/pdf:latest
+        script: ../../frameworks/hermes/script.sh
+        environment:
+          variables:
+            AGENT_SOUL: |
+              {{ file "SOUL.md" }}
+            AGENT_SKILLS: |
+              {{ agentSkills }}
+`
+		metadataContent = `{
+  "@context": ["https://w3id.org/ro/crate/1.1/context"],
+  "@graph": [
+    {
+      "@id": "./",
+      "@type": ["Dataset", "Service", "SoftwareApplication", "Agent"],
+      "name": "PDF Summarizer Agent",
+      "agentSkills": [
+        { "@id": "../../skills/pdf-extract/SKILL.md" },
+        { "@id": "https://www.skills.sh/openai/skills/pdf" }
+      ]
+    },
+    {
+      "@id": "../../skills/pdf-extract/SKILL.md",
+      "@type": ["File", "CreativeWork", "AgentSkill"],
+      "name": "PDF Extract Skill",
+      "skillSource": "local",
+      "encodingFormat": "text/markdown"
+    },
+    {
+      "@id": "https://www.skills.sh/openai/skills/pdf",
+      "@type": ["CreativeWork", "AgentSkill"],
+      "name": "OpenAI PDF Skill",
+      "description": "External PDF processing skill.",
+      "url": "https://www.skills.sh/openai/skills/pdf",
+      "skillSource": "marketplace"
+    }
+  ]
+}`
+	)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/foo/hub/contents/agents/pdf-summarizer":
+			writeJSON(t, w, []map[string]any{
+				{"name": "fdl.yml", "path": "agents/pdf-summarizer/fdl.yml", "type": "file"},
+			})
+		case "/repos/foo/hub/contents/agents/pdf-summarizer/fdl.yml":
+			w.Write([]byte(fdlContent))
+		case "/repos/foo/hub/contents/agents/pdf-summarizer/ro-crate-metadata.json":
+			w.Write([]byte(metadataContent))
+		case "/repos/foo/hub/contents/agents/pdf-summarizer/SOUL.md":
+			w.Write([]byte(soulContent))
+		case "/repos/foo/hub/contents/frameworks/hermes/script.sh":
+			w.Write([]byte(scriptContent))
+		case "/repos/foo/hub/contents/skills/pdf-extract/SKILL.md":
+			w.Write([]byte(skillContent))
+		default:
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	client := hub.NewClient(
+		hub.WithOwner("foo"),
+		hub.WithRepo("hub"),
+		hub.WithBaseAPI(ts.URL),
+		hub.WithHTTPClient(ts.Client()),
+	)
+
+	fdl, err := client.FetchFDL(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("FetchFDL returned error: %v", err)
+	}
+
+	svc := firstService(t, fdl)
+	if svc.Script != scriptContent {
+		t.Fatalf("expected shared script content %q, got %q", scriptContent, svc.Script)
+	}
+	if got := svc.Environment.Vars["AGENT_SOUL"]; !strings.Contains(got, "Summarize PDFs carefully.") {
+		t.Fatalf("expected rendered soul content, got %q", got)
+	}
+	skills := svc.Environment.Vars["AGENT_SKILLS"]
+	if !strings.Contains(skills, "Use pdftotext when available.") {
+		t.Fatalf("expected local skill content, got %q", skills)
+	}
+	if !strings.Contains(skills, "https://www.skills.sh/openai/skills/pdf") {
+		t.Fatalf("expected marketplace skill reference, got %q", skills)
+	}
+}
+
+func TestLoadLocalFDLRendersAgentTemplate(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(root, "agents", "pdf-summarizer")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("creating agent dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "frameworks", "hermes"), 0o755); err != nil {
+		t.Fatalf("creating framework dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "skills", "pdf-extract"), 0o755); err != nil {
+		t.Fatalf("creating skills dir: %v", err)
+	}
+
+	writeFile(t, filepath.Join(agentDir, "fdl.yml"), `
+functions:
+  oscar:
+    - default:
+        name: pdf-summarizer
+        image: ghcr.io/demo/pdf:latest
+        script: ../../frameworks/hermes/script.sh
+        environment:
+          variables:
+            AGENT_SOUL: |
+              {{ file "SOUL.md" }}
+            AGENT_SKILLS: |
+              {{ agentSkills }}
+`)
+	writeFile(t, filepath.Join(agentDir, "SOUL.md"), "# Soul\n\nLocal soul.\n")
+	writeFile(t, filepath.Join(agentDir, "ro-crate-metadata.json"), `{
+  "@context": ["https://w3id.org/ro/crate/1.1/context"],
+  "@graph": [
+    {
+      "@id": "./",
+      "@type": ["Dataset", "Service", "SoftwareApplication", "Agent"],
+      "agentSkills": [{ "@id": "../../skills/pdf-extract/SKILL.md" }]
+    },
+    {
+      "@id": "../../skills/pdf-extract/SKILL.md",
+      "@type": ["File", "CreativeWork", "AgentSkill"],
+      "name": "PDF Extract Skill",
+      "skillSource": "local",
+      "encodingFormat": "text/markdown"
+    }
+  ]
+}`)
+	writeFile(t, filepath.Join(root, "frameworks", "hermes", "script.sh"), "#!/bin/sh\necho local\n")
+	writeFile(t, filepath.Join(root, "skills", "pdf-extract", "SKILL.md"), "# Skill\n\nLocal skill.\n")
+
+	fdl, err := hub.LoadLocalFDL(root, "agents/pdf-summarizer")
+	if err != nil {
+		t.Fatalf("LoadLocalFDL returned error: %v", err)
+	}
+
+	svc := firstService(t, fdl)
+	if !strings.Contains(svc.Script, "echo local") {
+		t.Fatalf("expected shared script content, got %q", svc.Script)
+	}
+	if got := svc.Environment.Vars["AGENT_SOUL"]; !strings.Contains(got, "Local soul.") {
+		t.Fatalf("expected rendered soul content, got %q", got)
+	}
+	if got := svc.Environment.Vars["AGENT_SKILLS"]; !strings.Contains(got, "Local skill.") {
+		t.Fatalf("expected rendered skill content, got %q", got)
+	}
+}
+
+func TestLoadLocalFDLRendersAgentTemplateFromAgentsRoot(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(root, "agents", "pdf-summarizer")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("creating agent dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "frameworks", "hermes"), 0o755); err != nil {
+		t.Fatalf("creating framework dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "skills", "pdf-extract"), 0o755); err != nil {
+		t.Fatalf("creating skills dir: %v", err)
+	}
+
+	writeFile(t, filepath.Join(agentDir, "fdl.yml"), `
+functions:
+  oscar:
+    - default:
+        name: pdf-summarizer
+        image: ghcr.io/demo/pdf:latest
+        script: ../../frameworks/hermes/script.sh
+        environment:
+          variables:
+            AGENT_SOUL: |
+              {{ file "SOUL.md" }}
+            AGENT_SKILLS: |
+              {{ agentSkills }}
+`)
+	writeFile(t, filepath.Join(agentDir, "SOUL.md"), "# Soul\n\nAgents root soul.\n")
+	writeFile(t, filepath.Join(agentDir, "ro-crate-metadata.json"), `{
+  "@context": ["https://w3id.org/ro/crate/1.1/context"],
+  "@graph": [
+    {
+      "@id": "./",
+      "@type": ["Dataset", "Service", "SoftwareApplication", "Agent"],
+      "agentSkills": [{ "@id": "../../skills/pdf-extract/SKILL.md" }]
+    },
+    {
+      "@id": "../../skills/pdf-extract/SKILL.md",
+      "@type": ["File", "CreativeWork", "AgentSkill"],
+      "name": "PDF Extract Skill",
+      "skillSource": "local",
+      "encodingFormat": "text/markdown"
+    }
+  ]
+}`)
+	writeFile(t, filepath.Join(root, "frameworks", "hermes", "script.sh"), "#!/bin/sh\necho agents-root\n")
+	writeFile(t, filepath.Join(root, "skills", "pdf-extract", "SKILL.md"), "# Skill\n\nAgents root skill.\n")
+
+	fdl, err := hub.LoadLocalFDL(filepath.Join(root, "agents"), "pdf-summarizer")
+	if err != nil {
+		t.Fatalf("LoadLocalFDL returned error: %v", err)
+	}
+
+	svc := firstService(t, fdl)
+	if !strings.Contains(svc.Script, "echo agents-root") {
+		t.Fatalf("expected shared script content, got %q", svc.Script)
+	}
+	if got := svc.Environment.Vars["AGENT_SOUL"]; !strings.Contains(got, "Agents root soul.") {
+		t.Fatalf("expected rendered soul content, got %q", got)
+	}
+	if got := svc.Environment.Vars["AGENT_SKILLS"]; !strings.Contains(got, "Agents root skill.") {
+		t.Fatalf("expected rendered skill content, got %q", got)
+	}
+}
+
+func firstService(t *testing.T, fdl *service.FDL) *types.Service {
+	t.Helper()
+	for _, element := range fdl.Functions.Oscar {
+		for _, svc := range element {
+			if svc != nil {
+				return svc
+			}
+		}
+	}
+	t.Fatalf("expected at least one service in FDL")
+	return nil
+}
+
+func writeFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
 	}
 }
 

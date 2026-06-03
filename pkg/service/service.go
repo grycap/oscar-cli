@@ -41,6 +41,7 @@ const servicesPath = "/system/services"
 const runPath = "/run"
 const jobPath = "/job"
 const runServiceTimeoutSeconds = 300
+const exposeAuthTypeAnnotation = "oscar.grycap/expose-auth-type"
 
 // FDL represents a Functions Definition Language file
 type FDL struct {
@@ -68,6 +69,7 @@ func ReadFDL(path string) (fdl *FDL, err error) {
 	if err != nil {
 		return fdl, errors.New("the FDL file is not valid, please check its definition")
 	}
+	PreserveExposeAuthType(content, fdl)
 
 	for _, element := range fdl.Functions.Oscar {
 		for clusterID, svc := range element {
@@ -225,6 +227,14 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 	if err != nil {
 		return fmt.Errorf("cannot encode the service \"%s\", please check its definition", svc.Name)
 	}
+	svcBytes, err = normalizeExposePortLists(svcBytes)
+	if err != nil {
+		return fmt.Errorf("cannot encode the service \"%s\", please check its definition", svc.Name)
+	}
+	svcBytes, err = injectExposeAuthType(svc, svcBytes)
+	if err != nil {
+		return fmt.Errorf("cannot encode the service \"%s\", please check its definition", svc.Name)
+	}
 	reqBody := bytes.NewBuffer(svcBytes)
 
 	// Make the request
@@ -355,4 +365,104 @@ func JobService(c *cluster.Cluster, name string, token string, endpoint string, 
 
 func getScriptPath(scriptPath string, servicePath string) string {
 	return filepath.Dir(servicePath) + "/" + scriptPath
+}
+
+func normalizeExposePortLists(svcBytes []byte) ([]byte, error) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(svcBytes, &payload); err != nil {
+		return nil, err
+	}
+
+	expose, ok := payload["expose"].(map[string]interface{})
+	if !ok {
+		return svcBytes, nil
+	}
+
+	if apiPort, ok := expose["api_port"].(float64); ok {
+		if apiPort == 0 {
+			delete(expose, "api_port")
+		} else {
+			expose["api_port"] = []int{int(apiPort)}
+		}
+	}
+
+	if nodePort, ok := expose["nodePort"].(float64); ok {
+		if nodePort == 0 {
+			delete(expose, "nodePort")
+		} else {
+			expose["nodePort"] = []int{int(nodePort)}
+		}
+	}
+
+	return json.Marshal(payload)
+}
+
+// PreserveExposeAuthType keeps expose.auth_type from FDL files while oscar-cli
+// still depends on OSCAR types that do not model that field.
+func PreserveExposeAuthType(rawFDL []byte, fdl *FDL) {
+	if fdl == nil {
+		return
+	}
+
+	var raw struct {
+		Functions struct {
+			Oscar []map[string]struct {
+				Expose struct {
+					AuthType string `json:"auth_type"`
+				} `json:"expose"`
+			} `json:"oscar"`
+		} `json:"functions"`
+	}
+	if err := yaml.Unmarshal(rawFDL, &raw); err != nil {
+		return
+	}
+
+	for i, rawElement := range raw.Functions.Oscar {
+		if i >= len(fdl.Functions.Oscar) {
+			return
+		}
+		for clusterID, rawSvc := range rawElement {
+			authType := strings.TrimSpace(rawSvc.Expose.AuthType)
+			if authType == "" {
+				continue
+			}
+			svc := fdl.Functions.Oscar[i][clusterID]
+			if svc == nil {
+				continue
+			}
+			if svc.Annotations == nil {
+				svc.Annotations = map[string]string{}
+			}
+			svc.Annotations[exposeAuthTypeAnnotation] = authType
+		}
+	}
+}
+
+func injectExposeAuthType(svc *types.Service, svcBytes []byte) ([]byte, error) {
+	if svc == nil || svc.Annotations == nil {
+		return svcBytes, nil
+	}
+
+	authType := strings.TrimSpace(svc.Annotations[exposeAuthTypeAnnotation])
+	if authType == "" {
+		return svcBytes, nil
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(svcBytes, &payload); err != nil {
+		return nil, err
+	}
+
+	expose, ok := payload["expose"].(map[string]interface{})
+	if !ok {
+		expose = map[string]interface{}{}
+		payload["expose"] = expose
+	}
+	expose["auth_type"] = authType
+
+	if annotations, ok := payload["annotations"].(map[string]interface{}); ok {
+		delete(annotations, exposeAuthTypeAnnotation)
+	}
+
+	return json.Marshal(payload)
 }
