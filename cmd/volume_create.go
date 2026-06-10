@@ -19,8 +19,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/volume"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/volume"
 	"github.com/spf13/cobra"
 )
 

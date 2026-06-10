@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/grycap/oscar-cli/pkg/storage"
+	"github.com/grycap/oscar-cli/v2/pkg/storage"
 )
 
 func (s *uiState) switchToBuckets(ctx context.Context) {
@@ -251,4 +252,121 @@ func (s *uiState) searchBuckets(query string) bool {
 		}
 	}
 	return false
+}
+
+func (s *uiState) promptCreateBucket() {
+	s.mutex.Lock()
+	if s.createBucketPromptVisible || s.searchVisible || s.autoRefreshPromptVisible ||
+		s.confirmVisible || s.legendVisible || s.pages == nil ||
+		s.currentCluster == "" {
+		s.mutex.Unlock()
+		return
+	}
+	s.createBucketPromptVisible = true
+	s.createBucketName = ""
+	s.createBucketFocus = s.app.GetFocus()
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	input := tview.NewInputField().
+		SetLabel("Bucket name: ").
+		SetFieldWidth(30)
+	input.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyEnter:
+			s.handleCreateBucketName(strings.TrimSpace(input.GetText()))
+		case tcell.KeyEscape:
+			s.hideCreateBucketPrompt()
+		}
+	})
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Create Bucket")
+		input.SetBorder(false)
+		container.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) handleCreateBucketName(name string) {
+	if name == "" {
+		s.setStatus("[red]Bucket name cannot be empty")
+		return
+	}
+
+	s.mutex.Lock()
+	s.createBucketName = name
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	input := tview.NewInputField().
+		SetLabel("Visibility (public/private/restricted): ").
+		SetFieldWidth(20)
+	input.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyEnter:
+			s.handleCreateBucketVisibility(name, strings.TrimSpace(input.GetText()))
+		case tcell.KeyEscape:
+			s.hideCreateBucketPrompt()
+		}
+	})
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Create Bucket")
+		input.SetBorder(false)
+		container.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) handleCreateBucketVisibility(name, visibility string) {
+	if visibility == "" {
+		s.setStatus("[red]Visibility cannot be empty")
+		return
+	}
+
+	s.hideCreateBucketPrompt()
+	s.setStatus(fmt.Sprintf("[yellow]Creating bucket %q (%s)...", name, visibility))
+
+	clusterName := s.currentCluster
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+
+	go func() {
+		if err := storage.CreateBucket(clusterCfg, name, visibility, nil); err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to create bucket %q: %v", name, err))
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Bucket %q created", name))
+		s.refreshCurrent(context.Background())
+	}()
+}
+
+func (s *uiState) hideCreateBucketPrompt() {
+	s.mutex.Lock()
+	if !s.createBucketPromptVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.createBucketPromptVisible = false
+	s.createBucketName = ""
+	focus := s.createBucketFocus
+	s.createBucketFocus = nil
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Status")
+		container.AddItem(s.statusView, 0, 1, false)
+		s.statusView.SetText(s.decorateStatusText(statusHelpText))
+	})
+	if focus != nil {
+		s.app.SetFocus(focus)
+	}
 }

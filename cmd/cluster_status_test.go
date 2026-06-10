@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grycap/oscar-cli/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
 )
 
 func TestClusterStatusCommandPrintsStatus(t *testing.T) {

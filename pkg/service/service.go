@@ -30,15 +30,17 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/goccy/go-yaml"
-	"github.com/grycap/oscar-cli/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 
 const servicesPath = "/system/services"
 const runPath = "/run"
 const jobPath = "/job"
+const runServiceTimeoutSeconds = 300
 
 // FDL represents a Functions Definition Language file
 type FDL struct {
@@ -257,9 +259,9 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 
 // RunService invokes a service synchronously (a Serverless backend in the cluster is required)
 func RunService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
-	client := http.DefaultClient
+	client := &http.Client{Timeout: time.Second * runServiceTimeoutSeconds}
 	if token == "" {
-		client, _ = c.GetClientSafe()
+		client, _ = c.GetClientSafe(runServiceTimeoutSeconds)
 		if reflect.TypeOf(client.Transport).String() == cluster.BASIC_AUTH {
 			svc, err := GetService(c, name)
 			if err != nil {

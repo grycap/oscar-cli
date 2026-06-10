@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/grycap/oscar-cli/pkg/hub"
+	"github.com/grycap/oscar-cli/v2/pkg/hub"
 )
 
 func TestClientListServices(t *testing.T) {

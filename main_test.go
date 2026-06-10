@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/grycap/oscar-cli/cmd"
+	"github.com/grycap/oscar-cli/v2/cmd"
 )
 
 func TestRootCommandHelp(t *testing.T) {

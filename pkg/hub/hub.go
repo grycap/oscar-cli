@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
-	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
 )
 
 const (

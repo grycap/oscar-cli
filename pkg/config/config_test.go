@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/grycap/oscar-cli/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
 )
 
 func TestReadConfigYAML(t *testing.T) {

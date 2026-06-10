@@ -28,11 +28,27 @@ func (s *uiState) initiateSearch(ctx context.Context) {
 			target = searchTargetBuckets
 		} else if mode == modeLogs {
 			target = searchTargetLogs
+		} else if mode == modeVolumes {
+			target = searchTargetVolumes
 		} else {
 			target = searchTargetServices
 		}
 	case s.detailsView:
 		target = searchTargetDetails
+	case s.bucketObjectsTable:
+		target = searchTargetBuckets
+	}
+
+	// If focus is on the cluster list but we're in a mode-specific view,
+	// search that view's data instead.
+	if target == searchTargetClusters {
+		if mode == modeBuckets {
+			target = searchTargetBuckets
+		} else if mode == modeVolumes {
+			target = searchTargetVolumes
+		} else if mode == modeServices {
+			target = searchTargetServices
+		}
 	}
 
 	if target == searchTargetNone && len(s.clusterNames) > 0 {
@@ -69,6 +85,12 @@ func (s *uiState) initiateSearch(ctx context.Context) {
 			s.setStatus("[yellow]No buckets to search")
 			return
 		}
+	case searchTargetVolumes:
+		if len(s.volumes) == 0 {
+			s.mutex.Unlock()
+			s.setStatus("[yellow]No volumes to search")
+			return
+		}
 	case searchTargetDetails:
 		text := s.detailsView.GetText(true)
 		if strings.TrimSpace(text) == "" {
@@ -102,6 +124,8 @@ func (s *uiState) showSearch(target searchTarget) {
 		label = "Services: "
 	case searchTargetBuckets:
 		label = "Buckets: "
+	case searchTargetVolumes:
+		label = "Volumes: "
 	case searchTargetDetails:
 		label = "Details: "
 	}
@@ -178,6 +202,8 @@ func (s *uiState) handleSearchInput(query string) {
 		found = s.searchLogs(lower)
 	case searchTargetBuckets:
 		found = s.searchBuckets(lower)
+	case searchTargetVolumes:
+		found = s.searchVolumes(lower)
 	case searchTargetDetails:
 		found = s.searchDetails(lower)
 	}

@@ -19,7 +19,7 @@ package cmd
 import (
 	"os"
 
-	"github.com/grycap/oscar-cli/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
 	"github.com/spf13/cobra"
 )
 

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/grycap/oscar-cli/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 
