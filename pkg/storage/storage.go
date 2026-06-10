@@ -37,9 +37,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 
@@ -591,9 +591,11 @@ func UpdateBucket(c *cluster.Cluster, name, visibility string, allowedUsers []st
 	if err != nil {
 		return cluster.ErrParsingEndpoint
 	}
-	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmed)
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets")
 
-	payload := map[string]interface{}{}
+	payload := map[string]interface{}{
+		"bucket_name": trimmed,
+	}
 	if visibility != "" {
 		payload["visibility"] = visibility
 	}

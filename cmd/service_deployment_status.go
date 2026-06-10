@@ -22,8 +22,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/goccy/go-yaml"
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
 	"github.com/spf13/cobra"
 )
 

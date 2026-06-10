@@ -17,7 +17,7 @@ limitations under the License.
 package main
 
 import (
-	"github.com/grycap/oscar-cli/cmd"
+	"github.com/grycap/oscar-cli/v2/cmd"
 )
 
 func main() {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"text/tabwriter"
 
-	"github.com/grycap/oscar-cli/pkg/hub"
+	"github.com/grycap/oscar-cli/v2/pkg/hub"
 	"github.com/spf13/cobra"
 )
 

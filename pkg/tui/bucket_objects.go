@@ -3,13 +3,15 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/grycap/oscar-cli/pkg/storage"
+	"github.com/grycap/oscar-cli/v2/pkg/storage"
 )
 
 func (s *uiState) setCurrentBucketObjectsKey(key string) {
@@ -339,5 +341,165 @@ func (s *uiState) fetchBucketObjects(ctx context.Context, clusterName, bucketNam
 	if activeKey == key {
 		s.renderBucketObjects(bucketName, state)
 		s.updateBucketObjectsStatus(bucketName, state)
+	}
+}
+
+func (s *uiState) currentBucketObjectSelection() (clusterName, bucketName, objectName string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.mode != modeBuckets {
+		return "", "", ""
+	}
+	clusterName = s.currentCluster
+	row, _ := s.serviceTable.GetSelection()
+	if row <= 0 || row-1 >= len(s.bucketInfos) {
+		return clusterName, "", ""
+	}
+	bucket := s.bucketInfos[row-1]
+	if bucket == nil {
+		return clusterName, "", ""
+	}
+	bucketName = bucket.Name
+	key := makeBucketObjectsKey(clusterName, bucketName)
+	state := s.bucketObjects[key]
+	if state == nil {
+		return clusterName, bucketName, ""
+	}
+	objRow, _ := s.bucketObjectsTable.GetSelection()
+	if objRow <= 0 || objRow-1 >= len(state.Objects) {
+		return clusterName, bucketName, ""
+	}
+	obj := state.Objects[objRow-1]
+	if obj == nil {
+		return clusterName, bucketName, ""
+	}
+	return clusterName, bucketName, obj.Name
+}
+
+func (s *uiState) requestBucketObjectDeletion() {
+	s.mutex.Lock()
+	if s.confirmVisible || s.legendVisible || s.pages == nil {
+		s.mutex.Unlock()
+		return
+	}
+	s.mutex.Unlock()
+
+	clusterName, bucketName, objectName := s.currentBucketObjectSelection()
+	if clusterName == "" || bucketName == "" || objectName == "" {
+		s.setStatus("[red]Select an object to delete")
+		return
+	}
+
+	prompt := fmt.Sprintf("Delete object %q from bucket %q?", objectName, bucketName)
+	s.queueUpdate(func() {
+		s.showConfirmation(prompt, func() {
+			go s.performBucketObjectDeletion(clusterName, bucketName, objectName)
+		})
+	})
+}
+
+func (s *uiState) performBucketObjectDeletion(clusterName, bucketName, objectName string) {
+	s.setStatus(fmt.Sprintf("[yellow]Deleting object %q...", objectName))
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+	remotePath := bucketName + "/" + objectName
+	if err := storage.DeleteFile(clusterCfg, storage.DefaultStorageProvider[0], remotePath); err != nil {
+		s.setStatus(fmt.Sprintf("[red]Failed to delete object %q: %v", objectName, err))
+		return
+	}
+	s.setStatus(fmt.Sprintf("[green]Object %q deleted", objectName))
+	s.reloadBucketObjects(context.Background())
+}
+
+func (s *uiState) promptPutFile() {
+	s.mutex.Lock()
+	if s.putFilePromptVisible || s.searchVisible || s.autoRefreshPromptVisible ||
+		s.confirmVisible || s.legendVisible || s.pages == nil {
+		s.mutex.Unlock()
+		return
+	}
+	s.putFilePromptVisible = true
+	s.putFileFocus = s.app.GetFocus()
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	input := tview.NewInputField().
+		SetLabel("Local file path: ").
+		SetFieldWidth(40)
+	input.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyEnter:
+			s.handlePutFilePath(strings.TrimSpace(input.GetText()))
+		case tcell.KeyEscape:
+			s.hidePutFilePrompt()
+		}
+	})
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Upload File")
+		input.SetBorder(false)
+		container.AddItem(input, 0, 1, true)
+	})
+	s.app.SetFocus(input)
+}
+
+func (s *uiState) handlePutFilePath(localPath string) {
+	if localPath == "" {
+		s.setStatus("[red]File path cannot be empty")
+		return
+	}
+
+	s.hidePutFilePrompt()
+	s.setStatus(fmt.Sprintf("[yellow]Uploading %q...", localPath))
+
+	clusterName, bucketName, _ := s.currentBucketObjectSelection()
+	if clusterName == "" || bucketName == "" {
+		s.setStatus("[red]Select a bucket to upload to")
+		return
+	}
+
+	clusterCfg := s.conf.Oscar[clusterName]
+	if clusterCfg == nil {
+		s.setStatus(fmt.Sprintf("[red]Cluster %q configuration not found", clusterName))
+		return
+	}
+
+	remoteName := filepath.Base(localPath)
+	remotePath := bucketName + "/" + remoteName
+
+	go func() {
+		if err := storage.PutFile(clusterCfg, storage.DefaultStorageProvider[0], localPath, remotePath, &storage.TransferOption{ShowProgress: false}); err != nil {
+			s.setStatus(fmt.Sprintf("[red]Failed to upload %q: %v", localPath, err))
+			return
+		}
+		s.setStatus(fmt.Sprintf("[green]Uploaded %q as %q", localPath, remoteName))
+		s.reloadBucketObjects(context.Background())
+	}()
+}
+
+func (s *uiState) hidePutFilePrompt() {
+	s.mutex.Lock()
+	if !s.putFilePromptVisible {
+		s.mutex.Unlock()
+		return
+	}
+	s.putFilePromptVisible = false
+	focus := s.putFileFocus
+	s.putFileFocus = nil
+	container := s.statusContainer
+	s.mutex.Unlock()
+
+	s.queueUpdate(func() {
+		container.Clear()
+		container.SetTitle("Status")
+		container.AddItem(s.statusView, 0, 1, false)
+		s.statusView.SetText(s.decorateStatusText(statusHelpText))
+	})
+	if focus != nil {
+		s.app.SetFocus(focus)
 	}
 }

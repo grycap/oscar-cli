@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/tui"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/tui"
 	"github.com/spf13/cobra"
 )
 
