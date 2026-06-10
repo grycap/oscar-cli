@@ -60,10 +60,12 @@ func TestBucketVisibilityColor(t *testing.T) {
 
 func TestFormatServiceDefinition(t *testing.T) {
 	svc := &types.Service{
-		Name:     "demo",
-		Image:    "demo:v1",
-		Memory:   "128Mi",
-		Replicas: []types.Replica{{Type: "oscar", ServiceName: "demo"}},
+		Name:   "demo",
+		Image:  "demo:v1",
+		Memory: "128Mi",
+		Federation: &types.Federation{
+			GroupID: "oscar", Delegation: "random", Topology: "mesh",
+		},
 	}
 
 	rendered, err := formatServiceDefinition(svc)
