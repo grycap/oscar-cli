@@ -155,8 +155,8 @@ func formatServiceDetails(svc *types.Service) string {
 	if svc.CPU != "" {
 		fmt.Fprintf(builder, "[yellow]CPU:[-] %s\n", svc.CPU)
 	}
-	if replicas := len(svc.Replicas); replicas > 0 {
-		fmt.Fprintf(builder, "[yellow]Replicas:[-] %d\n", replicas)
+	if federation := svc.Federation != nil; federation {
+		fmt.Fprintf(builder, "[yellow]Federation:[-] %t\n", federation)
 	}
 	if svc.LogLevel != "" {
 		fmt.Fprintf(builder, "[yellow]Log Level:[-] %s\n", svc.LogLevel)

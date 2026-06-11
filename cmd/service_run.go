@@ -24,6 +24,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"strings"
 
 	"github.com/grycap/oscar-cli/v2/pkg/config"
 	"github.com/grycap/oscar-cli/v2/pkg/service"
@@ -58,6 +59,7 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 	inputFile, _ := cmd.Flags().GetString("file-input")
 	textInput, _ := cmd.Flags().GetString("text-input")
 	outputFile, _ := cmd.Flags().GetString("output")
+	decodeOutput, _ := cmd.Flags().GetBool("decode-output")
 	if inputFile == "" && textInput == "" {
 		return errors.New("you must specify \"--file-input\" or \"--text-input\" flag")
 	}
@@ -110,28 +112,28 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 		return errors.New("unable to copy the response")
 	}
 
+	if decodeOutput {
+		tmpfile.Seek(0, 0)
+		response, err := io.ReadAll(tmpfile)
+		if err != nil {
+			return errors.New("unable to read the response")
+		}
+		decoded, err := decodeLastBase64Line(response)
+		if err != nil {
+			return err
+		}
+		return writeServiceRunOutput(outputFile, bytes.NewReader(decoded))
+	}
+
 	// Decode the result body
 	tmpfile.Seek(0, 0)
 	decoder := base64.NewDecoder(base64.StdEncoding, tmpfile)
 
-	// Parse output (store file if --output is set)
-	var out *os.File
-
-	if outputFile != "" {
-		// Create the file if --output is set
-		out, err = os.Create(outputFile)
-		if err != nil {
-			return fmt.Errorf("unable to create the file \"%s\"", outputFile)
-		}
-	} else {
-		// Create a temporary file
-		out, err = ioutil.TempFile("", "")
-		if err != nil {
-			return errors.New("unable to create a temporary file to decode the result")
-		}
-		defer os.Remove(out.Name())
+	out, err := createServiceRunOutput(outputFile)
+	if err != nil {
+		return err
 	}
-	defer out.Close()
+	defer closeServiceRunOutput(out, outputFile)
 
 	// Copy the decoder stream into out
 	_, err = io.Copy(out, decoder)
@@ -158,6 +160,68 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func decodeLastBase64Line(response []byte) ([]byte, error) {
+	lines := strings.Split(string(response), "\n")
+	decoder := base64.StdEncoding.Strict()
+
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		decoded, err := decoder.DecodeString(line)
+		if err == nil {
+			return decoded, nil
+		}
+	}
+
+	return nil, errors.New("unable to find base64-encoded output in the response")
+}
+
+func writeServiceRunOutput(outputFile string, input io.Reader) error {
+	out, err := createServiceRunOutput(outputFile)
+	if err != nil {
+		return err
+	}
+	defer closeServiceRunOutput(out, outputFile)
+
+	if _, err := io.Copy(out, input); err != nil {
+		return errors.New("unable to copy the response")
+	}
+
+	if outputFile == "" {
+		out.Seek(0, 0)
+		if _, err := io.Copy(os.Stdout, out); err != nil {
+			return errors.New("unable to print the result")
+		}
+	}
+
+	return nil
+}
+
+func createServiceRunOutput(outputFile string) (*os.File, error) {
+	if outputFile != "" {
+		out, err := os.Create(outputFile)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create the file \"%s\"", outputFile)
+		}
+		return out, nil
+	}
+
+	out, err := ioutil.TempFile("", "")
+	if err != nil {
+		return nil, errors.New("unable to create a temporary file to decode the result")
+	}
+	return out, nil
+}
+
+func closeServiceRunOutput(out *os.File, outputFile string) {
+	if outputFile == "" {
+		os.Remove(out.Name())
+	}
+	out.Close()
+}
+
 func makeServiceRunCmd() *cobra.Command {
 	serviceRunCmd := &cobra.Command{
 		Use:     "run SERVICE_NAME {--file-input | --text-input}",
@@ -173,6 +237,7 @@ func makeServiceRunCmd() *cobra.Command {
 	serviceRunCmd.Flags().StringP("file-input", "f", "", "input file for the request")
 	serviceRunCmd.Flags().StringP("text-input", "i", "", "text input string for the request")
 	serviceRunCmd.Flags().StringP("output", "o", "", "file path to store the output")
+	serviceRunCmd.Flags().Bool("decode-output", false, "decode the last base64-encoded line in the response and ignore logs")
 
 	return serviceRunCmd
 }

@@ -342,6 +342,7 @@ Aliases:
 
 Flags:
   -c, --cluster string      set the cluster
+      --decode-output       decode the last base64-encoded line in the response and ignore logs
   -e, --endpoint string     endpoint of a non registered cluster
   -f, --file-input string   input file for the request
   -h, --help                help for run
