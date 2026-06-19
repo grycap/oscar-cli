@@ -56,7 +56,7 @@ func federationGetFunc(cmd *cobra.Command, args []string) error {
 		}
 		w.Flush()
 		if len(replicas) == 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), "No federation replicas found")
+			fmt.Fprintln(cmd.OutOrStdout(), "No federation members found")
 		}
 	default:
 		for _, r := range replicas {
@@ -67,7 +67,7 @@ func federationGetFunc(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(cmd.OutOrStdout(), "Priority: %d\n\n", r.Priority)
 		}
 		if len(replicas) == 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), "No federation replicas found")
+			fmt.Fprintln(cmd.OutOrStdout(), "No federation members found")
 		}
 	}
 
@@ -77,9 +77,9 @@ func federationGetFunc(cmd *cobra.Command, args []string) error {
 func makeFederationGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "get SERVICE_NAME",
-		Short:   "Get federated replicas of a service",
+		Short:   "Get federated members of a service",
 		Args:    cobra.ExactArgs(1),
-		Aliases: []string{"g"},
+		Aliases: []string{"get-federation", "g"},
 		RunE:    federationGetFunc,
 	}
 

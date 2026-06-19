@@ -27,7 +27,7 @@ func federationFunc(cmd *cobra.Command, args []string) {
 func makeFederationCmd() *cobra.Command {
 	federationCmd := &cobra.Command{
 		Use:   "federation",
-		Short: "Manage service federation replicas",
+		Short: "Manage service federation members",
 		Args:  cobra.NoArgs,
 		Run:   federationFunc,
 	}
@@ -36,7 +36,7 @@ func makeFederationCmd() *cobra.Command {
 	federationCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "set the location of the config file (YAML or JSON)")
 
 	federationCmd.AddCommand(makeFederationGetCmd())
-	federationCmd.AddCommand(makeFederationCreateCmd())
+	federationCmd.AddCommand(makeFederationAddMemberCmd())
 	federationCmd.AddCommand(makeFederationUpdateCmd())
 	federationCmd.AddCommand(makeFederationDeleteCmd())
 

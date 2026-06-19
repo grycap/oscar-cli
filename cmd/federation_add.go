@@ -25,7 +25,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func federationCreateFunc(cmd *cobra.Command, args []string) error {
+func federationAddMemberFunc(cmd *cobra.Command, args []string) error {
 	conf, err := config.ReadConfig(configPath)
 	if err != nil {
 		return err
@@ -55,22 +55,23 @@ func federationCreateFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Federation replica created for service %q\n", args[0])
+	fmt.Fprintf(cmd.OutOrStdout(), "Federation member added for service %q\n", args[0])
 
 	return nil
 }
 
-func makeFederationCreateCmd() *cobra.Command {
+func makeFederationAddMemberCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create SERVICE_NAME",
-		Short: "Create a federation replica for a service",
-		Args:  cobra.ExactArgs(1),
-		RunE:  federationCreateFunc,
+		Use:     "add-member SERVICE_NAME",
+		Short:   "Add a federation member to a service",
+		Aliases: []string{"add", "a"},
+		Args:    cobra.ExactArgs(1),
+		RunE:    federationAddMemberFunc,
 	}
 
-	cmd.Flags().String("type", "oscar", "replica type (oscar or endpoint)")
+	cmd.Flags().String("type", "oscar", "type (oscar or endpoint)")
 	cmd.Flags().String("cluster-id", "", "cluster ID (for oscar type)")
-	cmd.Flags().String("service-name", "", "service name in the replica cluster (for oscar type)")
+	cmd.Flags().String("service-name", "", "service name in the member federation (for oscar type)")
 	cmd.Flags().String("url", "", "endpoint URL (for endpoint type)")
 	cmd.Flags().Uint("priority", 0, "delegation priority (0 = highest)")
 

@@ -29,7 +29,7 @@ import (
 
 const federationPath = "/system/federation"
 
-// GetFederation returns the federated replicas of a service.
+// GetFederation returns the federated members of a service.
 func GetFederation(c *cluster.Cluster, serviceName string) ([]types.Replica, error) {
 	getURL, err := url.Parse(c.Endpoint)
 	if err != nil {
@@ -65,17 +65,17 @@ func GetFederation(c *cluster.Cluster, serviceName string) ([]types.Replica, err
 	return replicas, nil
 }
 
-// CreateFederation creates federated replicas for a service.
+// CreateFederation creates federated members for a service.
 func CreateFederation(c *cluster.Cluster, serviceName string, replicas []types.Replica) error {
 	return federationRequest(c, http.MethodPost, serviceName, replicas)
 }
 
-// UpdateFederation updates federated replicas for a service.
+// UpdateFederation updates federated members for a service.
 func UpdateFederation(c *cluster.Cluster, serviceName string, replicas []types.Replica) error {
 	return federationRequest(c, http.MethodPut, serviceName, replicas)
 }
 
-// DeleteFederation deletes federated replicas for a service.
+// DeleteFederation deletes federated members for a service.
 func DeleteFederation(c *cluster.Cluster, serviceName string) error {
 	return federationRequest(c, http.MethodDelete, serviceName, nil)
 }

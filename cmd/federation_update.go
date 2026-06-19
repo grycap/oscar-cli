@@ -55,22 +55,23 @@ func federationUpdateFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Federation replica updated for service %q\n", args[0])
+	fmt.Fprintf(cmd.OutOrStdout(), "Federation member updated for service %q\n", args[0])
 
 	return nil
 }
 
 func makeFederationUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update SERVICE_NAME",
-		Short: "Update a federation replica for a service",
-		Args:  cobra.ExactArgs(1),
-		RunE:  federationUpdateFunc,
+		Use:     "update SERVICE_NAME",
+		Short:   "Update a federation member for a service",
+		Args:    cobra.ExactArgs(1),
+		Aliases: []string{"update-member", "u"},
+		RunE:    federationUpdateFunc,
 	}
 
-	cmd.Flags().String("type", "oscar", "replica type (oscar or endpoint)")
+	cmd.Flags().String("type", "oscar", "type (oscar or endpoint)")
 	cmd.Flags().String("cluster-id", "", "cluster ID (for oscar type)")
-	cmd.Flags().String("service-name", "", "service name in the replica cluster (for oscar type)")
+	cmd.Flags().String("service-name", "", "service name in the member federation (for oscar type)")
 	cmd.Flags().String("url", "", "endpoint URL (for endpoint type)")
 	cmd.Flags().Uint("priority", 0, "delegation priority (0 = highest)")
 
