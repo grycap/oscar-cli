@@ -23,6 +23,7 @@ type hubDeployOptions struct {
 	apiBase   string
 	name      string
 	localPath string
+	envFile   string
 }
 
 func (o *hubDeployOptions) applyToClient() []hub.Option {
@@ -81,6 +82,14 @@ func hubDeployFunc(cmd *cobra.Command, args []string, opts *hubDeployOptions) er
 		return err
 	}
 
+	if strings.TrimSpace(opts.envFile) != "" {
+		envFileValues, err := readEnvFile(opts.envFile)
+		if err != nil {
+			return err
+		}
+		applyEnvFileValuesToService(serviceDef, envFileValues)
+	}
+
 	if opts.name != "" {
 		overrideServiceName(serviceDef, opts.name)
 	}
@@ -130,6 +139,7 @@ func makeHubDeployCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.apiBase, "api-base", "", "override the GitHub API base URL")
 	cmd.Flags().StringVarP(&opts.name, "name", "n", "", "override the OSCAR service and primary bucket names during deployment")
 	cmd.Flags().StringVar(&opts.localPath, "local-path", "", "use a local directory containing the RO-Crate metadata instead of fetching it from GitHub")
+	cmd.Flags().StringVar(&opts.envFile, "env-file", "", "load environment variables and secrets from a dotenv file")
 	cmd.Flags().StringP("cluster", "c", "", "set the cluster")
 
 	if flag := cmd.Flags().Lookup("api-base"); flag != nil {
