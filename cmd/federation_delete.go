@@ -39,7 +39,7 @@ func federationDeleteFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Federation replicas deleted for service %q\n", args[0])
+	fmt.Fprintf(cmd.OutOrStdout(), "Federation members deleted for service %q\n", args[0])
 
 	return nil
 }
@@ -47,9 +47,9 @@ func federationDeleteFunc(cmd *cobra.Command, args []string) error {
 func makeFederationDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "delete SERVICE_NAME",
-		Short:   "Delete federation replicas of a service",
+		Short:   "Delete federation members of a service",
 		Args:    cobra.ExactArgs(1),
-		Aliases: []string{"rm"},
+		Aliases: []string{"rm", "del", "d", "delete-member", "remove-member"},
 		RunE:    federationDeleteFunc,
 	}
 
