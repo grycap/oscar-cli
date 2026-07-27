@@ -19,6 +19,7 @@ package service
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -30,7 +31,7 @@ import (
 const federationPath = "/system/federation"
 
 // GetFederation returns the federated members of a service.
-func GetFederation(c *cluster.Cluster, serviceName string) ([]types.Replica, error) {
+func GetFederation(c *cluster.Cluster, serviceName string) (*types.FederationResponse, error) {
 	getURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return nil, cluster.ErrParsingEndpoint
@@ -57,12 +58,12 @@ func GetFederation(c *cluster.Cluster, serviceName string) ([]types.Replica, err
 		return nil, err
 	}
 
-	var replicas []types.Replica
-	if err := json.NewDecoder(res.Body).Decode(&replicas); err != nil {
+	var resp types.FederationResponse
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
 		return nil, err
 	}
 
-	return replicas, nil
+	return &resp, nil
 }
 
 // CreateFederation creates federated members for a service.
@@ -76,8 +77,8 @@ func UpdateFederation(c *cluster.Cluster, serviceName string, replicas []types.R
 }
 
 // DeleteFederation deletes federated members for a service.
-func DeleteFederation(c *cluster.Cluster, serviceName string) error {
-	return federationRequest(c, http.MethodDelete, serviceName, nil)
+func DeleteFederation(c *cluster.Cluster, serviceName string, replica []types.Replica) error {
+	return federationRequest(c, http.MethodDelete, serviceName, replica)
 }
 
 func federationRequest(c *cluster.Cluster, method, serviceName string, replicas []types.Replica) error {
@@ -87,13 +88,31 @@ func federationRequest(c *cluster.Cluster, method, serviceName string, replicas 
 	}
 	reqURL.Path = path.Join(reqURL.Path, federationPath, serviceName)
 
-	var body *bytes.Buffer
-	if replicas != nil {
-		bodyBytes, err := json.Marshal(replicas)
+	var body io.Reader
+	switch method {
+	case http.MethodDelete:
+		//cluster := make(map[string]types.Cluster)
+		/*for _, rep := range replicas {
+			cluster[rep.ClusterID] = types.Cluster{
+				Endpoint:  rep.URL,
+				SSLVerify: rep.SSLVerify,
+			}
+		}*/
+
+		/*cluster := types.Cluster{
+			Endpoint: replicas.URL,
+		}*/
+		bodyBytes, err := json.Marshal(types.FederationRequest{Members: replicas, Delete: true})
 		if err != nil {
 			return err
 		}
-		body = bytes.NewBuffer(bodyBytes)
+		body = bytes.NewReader(bodyBytes)
+	default:
+		bodyBytes, err := json.Marshal(types.FederationRequest{Members: replicas})
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(bodyBytes)
 	}
 
 	req, err := http.NewRequest(method, reqURL.String(), body)
