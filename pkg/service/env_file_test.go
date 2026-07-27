@@ -1,4 +1,4 @@
-package cmd
+package service
 
 import (
 	"os"
@@ -22,9 +22,9 @@ IGNORED='value with spaces'
 		t.Fatalf("writing env file: %v", err)
 	}
 
-	values, err := readEnvFile(envPath)
+	values, err := ReadEnvFile(envPath)
 	if err != nil {
-		t.Fatalf("readEnvFile returned error: %v", err)
+		t.Fatalf("ReadEnvFile returned error: %v", err)
 	}
 
 	if got := values["OPENAI_API_KEY"]; got != "secret" {
@@ -51,7 +51,7 @@ func TestApplyEnvFileValuesToServiceOverridesDeclaredKeysOnly(t *testing.T) {
 		"OPENAI_API_KEY": "old-secret",
 	}
 
-	applyEnvFileValuesToService(svc, map[string]string{
+	ApplyEnvFileValuesToService(svc, map[string]string{
 		"OPENAI_API_KEY":  "new-secret",
 		"OPENAI_BASE_URL": "new-url",
 		"OPENAI_MODEL":    "new-model",

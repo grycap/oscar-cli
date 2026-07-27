@@ -1,4 +1,4 @@
-package cmd
+package service
 
 import (
 	"bufio"
@@ -10,7 +10,7 @@ import (
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 
-func readEnvFile(path string) (map[string]string, error) {
+func ReadEnvFile(path string) (map[string]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading env file %s: %w", path, err)
@@ -44,7 +44,6 @@ func readEnvFile(path string) (map[string]string, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading env file %s: %w", path, err)
 	}
-
 	return values, nil
 }
 
@@ -66,7 +65,7 @@ func cleanEnvValue(value string) string {
 	return value
 }
 
-func applyEnvFileValuesToService(svc *types.Service, values map[string]string) {
+func ApplyEnvFileValuesToService(svc *types.Service, values map[string]string) {
 	if svc == nil || len(values) == 0 {
 		return
 	}

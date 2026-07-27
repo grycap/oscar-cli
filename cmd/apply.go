@@ -55,7 +55,7 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 
 	envFileValues := map[string]string{}
 	if strings.TrimSpace(serviceEnvFile) != "" {
-		envFileValues, err = readEnvFile(serviceEnvFile)
+		envFileValues, err = service.ReadEnvFile(serviceEnvFile)
 		if err != nil {
 			return err
 		}
@@ -119,7 +119,7 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 
 			svc.ClusterID = targetCluster
 
-			applyEnvFileValuesToService(svc, envFileValues)
+			service.ApplyEnvFileValuesToService(svc, envFileValues)
 
 			if trimmed := strings.TrimSpace(serviceNameOverride); trimmed != "" {
 				overrideServiceName(svc, trimmed)

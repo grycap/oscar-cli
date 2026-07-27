@@ -83,11 +83,11 @@ func hubDeployFunc(cmd *cobra.Command, args []string, opts *hubDeployOptions) er
 	}
 
 	if strings.TrimSpace(opts.envFile) != "" {
-		envFileValues, err := readEnvFile(opts.envFile)
+		envFileValues, err := service.ReadEnvFile(opts.envFile)
 		if err != nil {
 			return err
 		}
-		applyEnvFileValuesToService(serviceDef, envFileValues)
+		service.ApplyEnvFileValuesToService(serviceDef, envFileValues)
 	}
 
 	if opts.name != "" {
