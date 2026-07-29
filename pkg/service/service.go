@@ -258,7 +258,7 @@ func ApplyService(svc *types.Service, c *cluster.Cluster, method string) error {
 }
 
 // RunService invokes a service synchronously (a Serverless backend in the cluster is required)
-func RunService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader) (responseBody io.ReadCloser, err error) {
+func RunService(c *cluster.Cluster, name string, token string, endpoint string, input io.Reader, header string) (responseBody io.ReadCloser, err error) {
 	client := &http.Client{Timeout: time.Second * runServiceTimeoutSeconds}
 	if token == "" {
 		client, _ = c.GetClientSafe(runServiceTimeoutSeconds)
@@ -287,6 +287,13 @@ func RunService(c *cluster.Cluster, name string, token string, endpoint string, 
 	req, err := http.NewRequest(http.MethodPost, runServiceURL.String(), input)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if header != "" {
+		for _, lines := range strings.Split(header, ",") {
+			chunck := strings.Split(lines, ":")
+			req.Header.Add(chunck[0], chunck[1])
+		}
+
 	}
 	if err != nil {
 		return nil, cluster.ErrMakingRequest

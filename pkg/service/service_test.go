@@ -189,7 +189,7 @@ func TestRunServiceUsesServiceToken(t *testing.T) {
 		SSLVerify: true,
 	}
 
-	resp, err := RunService(c, serviceName, "", "", bytes.NewBufferString(payload))
+	resp, err := RunService(c, serviceName, "", "", bytes.NewBufferString(payload), "")
 	if err != nil {
 		t.Fatalf("RunService returned error: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestRunServiceWithProvidedToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	resp, err := RunService(&cluster.Cluster{Endpoint: server.URL, SSLVerify: true}, serviceName, token, server.URL, bytes.NewBufferString(payload))
+	resp, err := RunService(&cluster.Cluster{Endpoint: server.URL, SSLVerify: true}, serviceName, token, server.URL, bytes.NewBufferString(payload), "")
 	if err != nil {
 		t.Fatalf("RunService returned error: %v", err)
 	}

@@ -35,6 +35,7 @@ type hubValidateOptions struct {
 	name                    string
 	localPath               string
 	printAcceptanceCommands bool
+	header                  string
 }
 
 func (o *hubValidateOptions) applyToClient() []hub.Option {
@@ -98,7 +99,7 @@ func hubValidateFunc(cmd *cobra.Command, args []string, opts *hubValidateOptions
 
 	fmt.Fprintf(out, "Acceptance tests for %s\n", args[0])
 
-	results, err := client.ValidateService(cmd.Context(), args[0], conf.Oscar[clusterID], opts.name, opts.localPath)
+	results, err := client.ValidateService(cmd.Context(), args[0], conf.Oscar[clusterID], opts.name, opts.localPath, opts.header)
 	if err != nil {
 		return err
 	}
@@ -154,6 +155,7 @@ func makeHubValidateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.apiBase, "api-base", "", "override the GitHub API base URL")
 	cmd.Flags().StringVarP(&opts.name, "name", "n", "", "override the OSCAR service name during validation")
 	cmd.Flags().StringVar(&opts.localPath, "local-path", "", "use a local directory containing the RO-Crate metadata instead of fetching it from GitHub")
+	cmd.Flags().StringVarP(&opts.header, "header", "H", "", "header on service invocation (e.g. \"Content-Type:application/json\")")
 	cmd.Flags().BoolVar(&opts.printAcceptanceCommands, "print-acceptance-commands", false, "print the acceptance test shell commands instead of executing them")
 	if flag := cmd.Flags().Lookup("api-base"); flag != nil {
 		flag.Hidden = true
