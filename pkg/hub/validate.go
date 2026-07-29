@@ -89,7 +89,7 @@ type AcceptanceCommandSet struct {
 }
 
 // ValidateService downloads the RO-Crate metadata for the provided slug, runs its acceptance tests against the cluster and returns the aggregated results.
-func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *cluster.Cluster, serviceNameOverride string, localRoot string) ([]AcceptanceResult, error) {
+func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *cluster.Cluster, serviceNameOverride string, localRoot string, header string) ([]AcceptanceResult, error) {
 	if strings.TrimSpace(slug) == "" {
 		return nil, errors.New("service slug cannot be empty")
 	}
@@ -110,7 +110,7 @@ func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *c
 			testName = test.ID
 		}
 		c.logf("Running acceptance test: %s\n", testName)
-		res := c.runAcceptanceTest(ctx, repoPath, slug, test, clusterCfg, serviceNameOverride, localCratePath, serviceCache)
+		res := c.runAcceptanceTest(ctx, repoPath, slug, test, clusterCfg, serviceNameOverride, localCratePath, serviceCache, header)
 		c.logAcceptanceResult(res)
 		results = append(results, res)
 	}
@@ -178,7 +178,7 @@ func (c *Client) loadAcceptanceTests(ctx context.Context, slug string, localRoot
 	return repoPath, localCratePath, tests, nil
 }
 
-func (c *Client) runAcceptanceTest(ctx context.Context, repoPath, slug string, test AcceptanceTest, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service) AcceptanceResult {
+func (c *Client) runAcceptanceTest(ctx context.Context, repoPath, slug string, test AcceptanceTest, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service, header string) AcceptanceResult {
 	result := AcceptanceResult{Test: test}
 
 	steps := test.Steps
@@ -201,7 +201,7 @@ func (c *Client) runAcceptanceTest(ctx context.Context, repoPath, slug string, t
 	var lastOutput string
 
 	for _, step := range steps {
-		stepRes := c.executeAcceptanceStep(ctx, repoPath, slug, test, step, supplyCache, clusterCfg, serviceNameOverride, localCratePath, svcCache, tempDir)
+		stepRes := c.executeAcceptanceStep(ctx, repoPath, slug, test, step, supplyCache, clusterCfg, serviceNameOverride, localCratePath, svcCache, tempDir, header)
 		result.StepResults = append(result.StepResults, stepRes)
 
 		if stepRes.Output != "" {
@@ -444,7 +444,7 @@ func shellQuote(value string) string {
 	return value
 }
 
-func (c *Client) executeAcceptanceStep(ctx context.Context, repoPath, slug string, test AcceptanceTest, step AcceptanceStep, baseSupply map[string]TestInput, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service, tempDir string) AcceptanceStepResult {
+func (c *Client) executeAcceptanceStep(ctx context.Context, repoPath, slug string, test AcceptanceTest, step AcceptanceStep, baseSupply map[string]TestInput, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service, tempDir string, header string) AcceptanceStepResult {
 	result := AcceptanceStepResult{Step: step}
 
 	if strings.TrimSpace(step.Command) == "" {
@@ -480,7 +480,7 @@ func (c *Client) executeAcceptanceStep(ctx context.Context, repoPath, slug strin
 			return result
 		}
 
-		responseBytes, err := invokeServiceWithContent(clusterCfg, serviceName, payload)
+		responseBytes, err := invokeServiceWithContent(clusterCfg, serviceName, payload, header)
 		if err != nil {
 			result.Err = err
 			return result
@@ -1434,7 +1434,7 @@ func isWhitespace(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\n' || r == '\r'
 }
 
-func invokeServiceWithContent(clusterCfg *cluster.Cluster, serviceName string, payload []byte) ([]byte, error) {
+func invokeServiceWithContent(clusterCfg *cluster.Cluster, serviceName string, payload []byte, header string) ([]byte, error) {
 	reader, writer := io.Pipe()
 	go func() {
 		encoder := base64.NewEncoder(base64.StdEncoding, writer)
@@ -1447,7 +1447,7 @@ func invokeServiceWithContent(clusterCfg *cluster.Cluster, serviceName string, p
 		}
 	}()
 
-	response, err := service.RunService(clusterCfg, serviceName, "", "", reader)
+	response, err := service.RunService(clusterCfg, serviceName, "", "", reader, header)
 	if err != nil {
 		return nil, err
 	}

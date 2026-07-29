@@ -360,6 +360,7 @@ Flags:
       --decode-output       decode the last base64-encoded line in the response and ignore logs
   -e, --endpoint string     endpoint of a non registered cluster
   -f, --file-input string   input file for the request
+  -H, --header string       header on service invocation (e.g. "Content-Type:application/json")
   -h, --help                help for run
   -o, --output string       file path to store the output
   -i, --text-input string   text input string for the request
@@ -368,6 +369,11 @@ Flags:
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
+```
+
+Examples:
+```
+  oscar-cli service run my-service -i '{"key":"value"}' -H "Content-Type:application/json"
 ```
 
 ##### logs list
