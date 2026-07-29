@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/hub"
-	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/hub"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
 	"github.com/grycap/oscar/v4/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -23,6 +23,7 @@ type hubDeployOptions struct {
 	apiBase   string
 	name      string
 	localPath string
+	envFile   string
 }
 
 func (o *hubDeployOptions) applyToClient() []hub.Option {
@@ -81,6 +82,14 @@ func hubDeployFunc(cmd *cobra.Command, args []string, opts *hubDeployOptions) er
 		return err
 	}
 
+	if strings.TrimSpace(opts.envFile) != "" {
+		envFileValues, err := service.ReadEnvFile(opts.envFile)
+		if err != nil {
+			return err
+		}
+		service.ApplyEnvFileValuesToService(serviceDef, envFileValues)
+	}
+
 	if opts.name != "" {
 		overrideServiceName(serviceDef, opts.name)
 	}
@@ -130,6 +139,7 @@ func makeHubDeployCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.apiBase, "api-base", "", "override the GitHub API base URL")
 	cmd.Flags().StringVarP(&opts.name, "name", "n", "", "override the OSCAR service and primary bucket names during deployment")
 	cmd.Flags().StringVar(&opts.localPath, "local-path", "", "use a local directory containing the RO-Crate metadata instead of fetching it from GitHub")
+	cmd.Flags().StringVar(&opts.envFile, "env-file", "", "load environment variables and secrets from a dotenv file")
 	cmd.Flags().StringP("cluster", "c", "", "set the cluster")
 
 	if flag := cmd.Flags().Lookup("api-base"); flag != nil {

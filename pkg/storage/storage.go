@@ -17,6 +17,7 @@ limitations under the License.
 package storage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -36,9 +37,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 
@@ -74,6 +75,14 @@ type BucketListResult struct {
 	NextPage      string
 	IsTruncated   bool
 	ReturnedItems int
+}
+
+type PresignRequest struct {
+	ObjectKey    string            `json:"object_key" binding:"required"`
+	Operation    string            `json:"operation" binding:"required"`
+	ExpiresIn    int64             `json:"expires_in"`
+	ContentType  string            `json:"content_type"`
+	ExtraHeaders map[string]string `json:"extra_headers"`
 }
 
 // ListBuckets returns the buckets available through the cluster MinIO provider.
@@ -517,6 +526,172 @@ func DeleteBucket(c *cluster.Cluster, name string) error {
 	return nil
 }
 
+// CreateBucket creates a new bucket in the cluster.
+func CreateBucket(c *cluster.Cluster, name, visibility string, allowedUsers []string) error {
+	if c == nil {
+		return errors.New("cluster configuration not provided")
+	}
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return errors.New("bucket name is required")
+	}
+
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return cluster.ErrParsingEndpoint
+	}
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets")
+
+	payload := map[string]interface{}{
+		"bucket_name": trimmed,
+	}
+	if visibility != "" {
+		payload["visibility"] = visibility
+	}
+	if len(allowedUsers) > 0 {
+		payload["allowed_users"] = allowedUsers
+	}
+
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("cannot encode bucket request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, endpoint.String(), bytes.NewReader(bodyBytes))
+	if err != nil {
+		return cluster.ErrMakingRequest
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	return cluster.CheckStatusCode(res)
+}
+
+// UpdateBucket updates a bucket's visibility and allowed users.
+func UpdateBucket(c *cluster.Cluster, name, visibility string, allowedUsers []string) error {
+	if c == nil {
+		return errors.New("cluster configuration not provided")
+	}
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return errors.New("bucket name is required")
+	}
+
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return cluster.ErrParsingEndpoint
+	}
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets")
+
+	payload := map[string]interface{}{
+		"bucket_name": trimmed,
+	}
+	if visibility != "" {
+		payload["visibility"] = visibility
+	}
+	if len(allowedUsers) > 0 {
+		payload["allowed_users"] = allowedUsers
+	}
+
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("cannot encode bucket request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPut, endpoint.String(), bytes.NewReader(bodyBytes))
+	if err != nil {
+		return cluster.ErrMakingRequest
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	return cluster.CheckStatusCode(res)
+}
+
+// PresignBucket generates a presigned URL for a file in a bucket.
+func PresignBucket(c *cluster.Cluster, bucketName string, req *PresignRequest) (string, error) {
+	if c == nil {
+		return "", errors.New("cluster configuration not provided")
+	}
+	trimmedBucket := strings.TrimSpace(bucketName)
+	if trimmedBucket == "" {
+		return "", errors.New("bucket name is required")
+	}
+	if req == nil {
+		return "", errors.New("presign request is required")
+	}
+	if strings.TrimSpace(req.ObjectKey) == "" {
+		return "", errors.New("object key is required")
+	}
+
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return "", cluster.ErrParsingEndpoint
+	}
+
+	endpoint.Path = path.Join(endpoint.Path, "system", "buckets", trimmedBucket, "presign")
+
+	bodyBytes, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("cannot encode presign request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest(http.MethodPost, endpoint.String(), bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", cluster.ErrMakingRequest
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return "", err
+	}
+
+	res, err := client.Do(httpReq)
+	if err != nil {
+		return "", cluster.ErrSendingRequest
+	}
+	defer res.Body.Close()
+
+	if err := cluster.CheckStatusCode(res); err != nil {
+		return "", err
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var result struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return strings.TrimSpace(string(body)), nil
+	}
+
+	return result.URL, nil
+}
+
 func defaultProviderLabel(provider string) string {
 	trimmed := strings.TrimSpace(provider)
 	if trimmed == "" {
@@ -839,20 +1014,17 @@ func ResolveLatestRemotePath(c *cluster.Cluster, svc *types.Service, providerStr
 }
 
 // PutFile uploads a file to a storage provider
-func PutFile(c *cluster.Cluster, svcName, providerString, localPath, remotePath string, opt *TransferOption) error {
-	svc, err := service.GetService(c, svcName)
+func PutFile(c *cluster.Cluster, providerString, localPath, remotePath string, opt *TransferOption) error {
+
+	dataprovider, err := getProvider(c, providerString, nil)
 	if err != nil {
 		return err
 	}
-	return putFile(c, svc, providerString, localPath, remotePath, opt)
+	return putFile(c, dataprovider, localPath, remotePath, opt)
 }
 
 // PutFileWithService uploads a file using a pre-fetched service definition.
 func PutFileWithService(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string, opt *TransferOption) error {
-	return putFile(c, svc, providerString, localPath, remotePath, opt)
-}
-
-func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, remotePath string, opt *TransferOption) error {
 	if svc == nil {
 		return errors.New("service definition not provided")
 	}
@@ -861,6 +1033,18 @@ func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, 
 	if err != nil {
 		return err
 	}
+	return putFile(c, prov, localPath, remotePath, opt)
+}
+
+func putFile(c *cluster.Cluster, prov interface{}, localPath, remotePath string, opt *TransferOption) error {
+	/*if svc == nil {
+		return errors.New("service definition not provided")
+	}
+
+	prov, err := getProvider(c, providerString, svc.StorageProviders)
+	if err != nil {
+		return err
+	}*/
 
 	file, err := os.Open(localPath)
 	if err != nil {
@@ -926,7 +1110,7 @@ func putFile(c *cluster.Cluster, svc *types.Service, providerString, localPath, 
 }
 
 // DeleteFile uploads a file to a storage provider
-func DeleteFile(c *cluster.Cluster, svcName, providerString, remotePath string) error {
+func DeleteFileWithService(c *cluster.Cluster, svcName, providerString, remotePath string) error {
 	// Get the service definition
 	svc, err := service.GetService(c, svcName)
 	if err != nil {
@@ -938,7 +1122,17 @@ func DeleteFile(c *cluster.Cluster, svcName, providerString, remotePath string) 
 	if err != nil {
 		return err
 	}
+	return deleteFile(c, prov, remotePath)
+}
 
+func DeleteFile(c *cluster.Cluster, providerString, remotePath string) error {
+	dataprovider, err := getProvider(c, providerString, nil)
+	if err != nil {
+		return err
+	}
+	return deleteFile(c, dataprovider, remotePath)
+}
+func deleteFile(c *cluster.Cluster, prov interface{}, remotePath string) error {
 	remotePath = strings.Trim(remotePath, " /")
 	// Split buckets and folders from remotePath
 	splitPath := strings.SplitN(remotePath, "/", 2)

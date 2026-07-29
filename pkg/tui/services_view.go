@@ -10,7 +10,7 @@ import (
 
 	"github.com/rivo/tview"
 
-	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
 	"github.com/grycap/oscar/v4/pkg/types"
 )
 

@@ -17,8 +17,8 @@ limitations under the License.
 package cmd
 
 import (
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/storage"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +34,7 @@ func serviceDeleteFileFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	err = storage.DeleteFile(conf.Oscar[cluster], args[0], args[1], args[2])
+	err = storage.DeleteFileWithService(conf.Oscar[cluster], args[0], args[1], args[2])
 	if err != nil {
 		return err
 	}

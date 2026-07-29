@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/grycap/oscar-cli/pkg/hub"
+	"github.com/grycap/oscar-cli/v2/pkg/hub"
 )
 
 func TestMakeHubValidateCmdIncludesPrintAcceptanceCommandsFlag(t *testing.T) {

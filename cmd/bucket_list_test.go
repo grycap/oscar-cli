@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/grycap/oscar-cli/pkg/storage"
+	"github.com/grycap/oscar-cli/v2/pkg/storage"
 )
 
 func TestBucketListCommandPrintsObjects(t *testing.T) {

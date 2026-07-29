@@ -19,7 +19,7 @@ package cmd
 import (
 	"os"
 
-	"github.com/grycap/oscar-cli/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
 	"github.com/spf13/cobra"
 )
 
@@ -53,6 +53,10 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(makeInteractiveCmd())
 	cmd.AddCommand(makeDeleteCmd())
 	cmd.AddCommand(makeHealthCmd())
+	cmd.AddCommand(makeFederationCmd())
+	cmd.AddCommand(makeVolumeCmd())
+	cmd.AddCommand(makeMetricsCmd())
+	cmd.AddCommand(makeQuotaCmd())
 
 	return cmd
 }

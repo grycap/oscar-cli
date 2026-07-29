@@ -25,9 +25,9 @@ import (
 
 	"github.com/briandowns/spinner"
 	"github.com/fatih/color"
-	"github.com/grycap/oscar-cli/pkg/cluster"
-	"github.com/grycap/oscar-cli/pkg/config"
-	"github.com/grycap/oscar-cli/pkg/service"
+	"github.com/grycap/oscar-cli/v2/pkg/cluster"
+	"github.com/grycap/oscar-cli/v2/pkg/config"
+	"github.com/grycap/oscar-cli/v2/pkg/service"
 	"github.com/grycap/oscar/v4/pkg/types"
 	"github.com/spf13/cobra"
 )
@@ -37,6 +37,7 @@ var (
 	successString        = color.New(color.FgGreen).Sprint("✓ ")
 	destinationClusterID string
 	serviceNameOverride  string
+	serviceEnvFile       string
 )
 
 func applyFunc(cmd *cobra.Command, args []string) error {
@@ -50,6 +51,14 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 	fdl, err := service.ReadFDL(args[0])
 	if err != nil {
 		return err
+	}
+
+	envFileValues := map[string]string{}
+	if strings.TrimSpace(serviceEnvFile) != "" {
+		envFileValues, err = service.ReadEnvFile(serviceEnvFile)
+		if err != nil {
+			return err
+		}
 	}
 
 	if destinationClusterID != "" {
@@ -109,6 +118,8 @@ func applyFunc(cmd *cobra.Command, args []string) error {
 			}
 
 			svc.ClusterID = targetCluster
+
+			service.ApplyEnvFileValuesToService(svc, envFileValues)
 
 			if trimmed := strings.TrimSpace(serviceNameOverride); trimmed != "" {
 				overrideServiceName(svc, trimmed)
@@ -182,6 +193,7 @@ func makeApplyCmd() *cobra.Command {
 	applyCmd.Flags().StringVarP(&destinationClusterID, "cluster", "c", "", "override the cluster id defined in the FDL file")
 	applyCmd.Flags().Bool("default", false, "override the cluster id defined in config file")
 	applyCmd.Flags().StringVarP(&serviceNameOverride, "name", "n", "", "override the OSCAR service and primary bucket names during deployment")
+	applyCmd.Flags().StringVar(&serviceEnvFile, "env-file", "", "load environment variables and secrets from a dotenv file")
 
 	return applyCmd
 }

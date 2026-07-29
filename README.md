@@ -2,7 +2,7 @@
 
 [![build](https://github.com/grycap/oscar-cli/actions/workflows/main.yaml/badge.svg)](https://github.com/grycap/oscar-cli/actions/workflows/main.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/grycap/oscar-cli)](https://goreportcard.com/report/github.com/grycap/oscar-cli)
-[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat)](https://pkg.go.dev/github.com/grycap/oscar-cli)
+[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat)](https://pkg.go.dev/github.com/grycap/oscar-cli/v2)
 [![License](https://img.shields.io/github/license/grycap/oscar-cli)](https://github.com/grycap/oscar-cli/blob/main/LICENSE)
 
 OSCAR-CLI provides a command line interface to interact with [OSCAR](https://github.com/grycap/oscar) clusters in a simple way. It supports service management, workflows definition from FDL (Functions Definition Language) files and the ability to manage files from OSCAR's compatible storage providers (MinIO, Amazon S3 and Onedata). The folder [`example-workflow`](https://github.com/grycap/oscar-cli/tree/main/example-workflow) contains all the necessary files to create a simple workflow to test the tool. 
@@ -18,7 +18,7 @@ The easy way to download OSCAR-CLI is through the github [releases page](https:/
 If you have [go](https://golang.org/doc/install) installed and [configured](https://github.com/golang/go/wiki/SettingGOPATH), you can get it from source directly by executing:
 
 ```sh
-go install github.com/grycap/oscar-cli@latest
+go install github.com/grycap/oscar-cli/v2@latest
 ```
 
 ## Available commands
@@ -65,10 +65,20 @@ Aliases:
   apply, a
 
 Flags:
-      --config string   set the location of the config file (YAML or JSON)
   -c, --cluster string  override the cluster id defined in the FDL file
+      --default         override the cluster id defined in config file
+      --env-file string load environment variables and secrets from a dotenv file
   -h, --help            help for apply
+  -n, --name string     override the OSCAR service and primary bucket names during deployment
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
 ```
+
+When `--env-file` is provided, matching keys override values declared under
+`environment.variables` and `environment.secrets` in the FDL. Keys that are not
+declared in the FDL are ignored, so the same dotenv file can be reused across
+different service deployments.
 
 ### cluster
 
@@ -228,17 +238,22 @@ Usage:
   oscar-cli hub deploy SERVICE-SLUG [flags]
 
 Flags:
-  -c, --cluster string  set the cluster
+  -c, --cluster string    set the cluster
+      --env-file string   load environment variables and secrets from a dotenv file
       --local-path string  use a local directory containing the RO-Crate metadata instead of fetching it from GitHub
-      --owner string    GitHub owner that hosts the curated services (default "grycap")
-      --path string     subdirectory inside the repository that contains the services
-      --ref string      Git reference (branch, tag, or commit) to query (default "main")
-  -n, --name string     override the OSCAR service and primary bucket names during deployment
-      --repo string     GitHub repository that hosts the curated services (default "oscar-hub")
+      --owner string      GitHub owner that hosts the curated services (default "grycap")
+      --path string       subdirectory inside the repository that contains the services
+      --ref string        Git reference (branch, tag, or commit) to query (default "main")
+  -n, --name string       override the OSCAR service and primary bucket names during deployment
+      --repo string       GitHub repository that hosts the curated services (default "oscar-hub")
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
+
+When `--env-file` is provided, matching keys override values declared under
+`environment.variables` and `environment.secrets` in the service FDL. Keys that
+are not declared by the service are ignored.
 
 Default curated source: https://github.com/grycap/oscar-hub/tree/main
 
@@ -342,6 +357,7 @@ Aliases:
 
 Flags:
   -c, --cluster string      set the cluster
+      --decode-output       decode the last base64-encoded line in the response and ignore logs
   -e, --endpoint string     endpoint of a non registered cluster
   -f, --file-input string   input file for the request
   -h, --help                help for run
