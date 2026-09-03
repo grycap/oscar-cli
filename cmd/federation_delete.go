@@ -21,6 +21,7 @@ import (
 
 	"github.com/grycap/oscar-cli/v2/pkg/config"
 	"github.com/grycap/oscar-cli/v2/pkg/service"
+	"github.com/grycap/oscar/v4/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +36,10 @@ func federationDeleteFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := service.DeleteFederation(conf.Oscar[clusterName], args[0]); err != nil {
+	clusterID, _ := cmd.Flags().GetString("cluster-id")
+	serviceName, _ := cmd.Flags().GetString("service-name")
+	replicas := []types.Replica{{Type: "oscar", ClusterID: clusterID, ServiceName: serviceName}}
+	if err := service.DeleteFederation(conf.Oscar[clusterName], args[0], replicas); err != nil {
 		return err
 	}
 
@@ -52,6 +56,9 @@ func makeFederationDeleteCmd() *cobra.Command {
 		Aliases: []string{"rm", "del", "d", "delete-member", "remove-member"},
 		RunE:    federationDeleteFunc,
 	}
+
+	cmd.Flags().String("cluster-id", "", "cluster ID of the federation member")
+	cmd.Flags().String("service-name", "", "service name of the federation member")
 
 	return cmd
 }

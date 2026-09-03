@@ -76,8 +76,8 @@ func UpdateFederation(c *cluster.Cluster, serviceName string, replicas []types.R
 }
 
 // DeleteFederation deletes federated members for a service.
-func DeleteFederation(c *cluster.Cluster, serviceName string) error {
-	return federationRequest(c, http.MethodDelete, serviceName, types.FederationRequest{Delete: true})
+func DeleteFederation(c *cluster.Cluster, serviceName string, replicas []types.Replica) error {
+	return federationRequest(c, http.MethodDelete, serviceName, types.FederationRequest{Members: replicas, Delete: true})
 }
 
 func federationRequest(c *cluster.Cluster, method, serviceName string, payload types.FederationRequest) error {
