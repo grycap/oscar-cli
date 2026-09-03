@@ -30,79 +30,74 @@ import (
 const federationPath = "/system/federation"
 
 // GetFederation returns the federated members of a service.
-func GetFederation(c *cluster.Cluster, serviceName string) ([]types.Replica, error) {
+func GetFederation(c *cluster.Cluster, serviceName string) (types.FederationResponse, error) {
+	var federation types.FederationResponse
 	getURL, err := url.Parse(c.Endpoint)
 	if err != nil {
-		return nil, cluster.ErrParsingEndpoint
+		return federation, cluster.ErrParsingEndpoint
 	}
 	getURL.Path = path.Join(getURL.Path, federationPath, serviceName)
 
 	req, err := http.NewRequest(http.MethodGet, getURL.String(), nil)
 	if err != nil {
-		return nil, cluster.ErrMakingRequest
+		return federation, cluster.ErrMakingRequest
 	}
 
 	client, err := c.GetClientSafe()
 	if err != nil {
-		return nil, err
+		return federation, err
 	}
 
 	res, err := client.Do(req)
 	if err != nil {
-		return nil, cluster.ErrSendingRequest
+		return federation, cluster.ErrSendingRequest
 	}
 	defer res.Body.Close()
 
 	if err := cluster.CheckStatusCode(res); err != nil {
-		return nil, err
+		return federation, err
 	}
 
-	var replicas []types.Replica
-	if err := json.NewDecoder(res.Body).Decode(&replicas); err != nil {
-		return nil, err
+	if err := json.NewDecoder(res.Body).Decode(&federation); err != nil {
+		return federation, err
 	}
 
-	return replicas, nil
+	return federation, nil
 }
 
 // CreateFederation creates federated members for a service.
 func CreateFederation(c *cluster.Cluster, serviceName string, replicas []types.Replica) error {
-	return federationRequest(c, http.MethodPost, serviceName, replicas)
+	return federationRequest(c, http.MethodPost, serviceName, types.FederationRequest{Members: replicas})
 }
 
 // UpdateFederation updates federated members for a service.
 func UpdateFederation(c *cluster.Cluster, serviceName string, replicas []types.Replica) error {
-	return federationRequest(c, http.MethodPut, serviceName, replicas)
+	return federationRequest(c, http.MethodPut, serviceName, types.FederationRequest{Update: replicas})
 }
 
 // DeleteFederation deletes federated members for a service.
 func DeleteFederation(c *cluster.Cluster, serviceName string) error {
-	return federationRequest(c, http.MethodDelete, serviceName, nil)
+	return federationRequest(c, http.MethodDelete, serviceName, types.FederationRequest{Delete: true})
 }
 
-func federationRequest(c *cluster.Cluster, method, serviceName string, replicas []types.Replica) error {
+func federationRequest(c *cluster.Cluster, method, serviceName string, payload types.FederationRequest) error {
 	reqURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return cluster.ErrParsingEndpoint
 	}
 	reqURL.Path = path.Join(reqURL.Path, federationPath, serviceName)
 
-	var body *bytes.Buffer
-	if replicas != nil {
-		bodyBytes, err := json.Marshal(replicas)
-		if err != nil {
-			return err
-		}
-		body = bytes.NewBuffer(bodyBytes)
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
 	}
+	body := bytes.NewBuffer(bodyBytes)
 
 	req, err := http.NewRequest(method, reqURL.String(), body)
 	if err != nil {
 		return cluster.ErrMakingRequest
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
+	req.Header.Set("Content-Type", "application/json")
 
 	client, err := c.GetClientSafe()
 	if err != nil {

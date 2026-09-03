@@ -37,7 +37,7 @@ func federationGetFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	replicas, err := service.GetFederation(conf.Oscar[clusterName], args[0])
+	federation, err := service.GetFederation(conf.Oscar[clusterName], args[0])
 	if err != nil {
 		return err
 	}
@@ -47,26 +47,26 @@ func federationGetFunc(cmd *cobra.Command, args []string) error {
 	case "json":
 		encoder := json.NewEncoder(cmd.OutOrStdout())
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(replicas)
+		return encoder.Encode(federation)
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 8, 2, ' ', 0)
 		fmt.Fprintln(w, "TYPE\tCLUSTER ID\tSERVICE NAME\tURL\tPRIORITY")
-		for _, r := range replicas {
+		for _, r := range federation.Members {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\n", r.Type, r.ClusterID, r.ServiceName, r.URL, r.Priority)
 		}
 		w.Flush()
-		if len(replicas) == 0 {
+		if len(federation.Members) == 0 {
 			fmt.Fprintln(cmd.OutOrStdout(), "No federation members found")
 		}
 	default:
-		for _, r := range replicas {
+		for _, r := range federation.Members {
 			fmt.Fprintf(cmd.OutOrStdout(), "Type: %s\n", r.Type)
 			fmt.Fprintf(cmd.OutOrStdout(), "Cluster ID: %s\n", r.ClusterID)
 			fmt.Fprintf(cmd.OutOrStdout(), "Service Name: %s\n", r.ServiceName)
 			fmt.Fprintf(cmd.OutOrStdout(), "URL: %s\n", r.URL)
 			fmt.Fprintf(cmd.OutOrStdout(), "Priority: %d\n\n", r.Priority)
 		}
-		if len(replicas) == 0 {
+		if len(federation.Members) == 0 {
 			fmt.Fprintln(cmd.OutOrStdout(), "No federation members found")
 		}
 	}
