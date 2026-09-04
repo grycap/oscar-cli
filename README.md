@@ -65,10 +65,20 @@ Aliases:
   apply, a
 
 Flags:
-      --config string   set the location of the config file (YAML or JSON)
   -c, --cluster string  override the cluster id defined in the FDL file
+      --default         override the cluster id defined in config file
+      --env-file string load environment variables and secrets from a dotenv file
   -h, --help            help for apply
+  -n, --name string     override the OSCAR service and primary bucket names during deployment
+
+Global Flags:
+      --config string   set the location of the config file (YAML or JSON)
 ```
+
+When `--env-file` is provided, matching keys override values declared under
+`environment.variables` and `environment.secrets` in the FDL. Keys that are not
+declared in the FDL are ignored, so the same dotenv file can be reused across
+different service deployments.
 
 ### cluster
 
@@ -228,17 +238,22 @@ Usage:
   oscar-cli hub deploy SERVICE-SLUG [flags]
 
 Flags:
-  -c, --cluster string  set the cluster
+  -c, --cluster string    set the cluster
+      --env-file string   load environment variables and secrets from a dotenv file
       --local-path string  use a local directory containing the RO-Crate metadata instead of fetching it from GitHub
-      --owner string    GitHub owner that hosts the curated services (default "grycap")
-      --path string     subdirectory inside the repository that contains the services
-      --ref string      Git reference (branch, tag, or commit) to query (default "main")
-  -n, --name string     override the OSCAR service and primary bucket names during deployment
-      --repo string     GitHub repository that hosts the curated services (default "oscar-hub")
+      --owner string      GitHub owner that hosts the curated services (default "grycap")
+      --path string       subdirectory inside the repository that contains the services
+      --ref string        Git reference (branch, tag, or commit) to query (default "main")
+  -n, --name string       override the OSCAR service and primary bucket names during deployment
+      --repo string       GitHub repository that hosts the curated services (default "oscar-hub")
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
 ```
+
+When `--env-file` is provided, matching keys override values declared under
+`environment.variables` and `environment.secrets` in the service FDL. Keys that
+are not declared by the service are ignored.
 
 Default curated source: https://github.com/grycap/oscar-hub/tree/main
 
@@ -345,6 +360,7 @@ Flags:
       --decode-output       decode the last base64-encoded line in the response and ignore logs
   -e, --endpoint string     endpoint of a non registered cluster
   -f, --file-input string   input file for the request
+  -H, --header string       header on service invocation (e.g. "Content-Type:application/json")
   -h, --help                help for run
   -o, --output string       file path to store the output
   -i, --text-input string   text input string for the request
@@ -353,6 +369,11 @@ Flags:
 
 Global Flags:
       --config string   set the location of the config file (YAML or JSON)
+```
+
+Examples:
+```
+  oscar-cli service run my-service -i '{"key":"value"}' -H "Content-Type:application/json"
 ```
 
 ##### logs list

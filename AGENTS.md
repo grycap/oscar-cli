@@ -362,7 +362,7 @@ type FDL struct {
 - `ListServicesWithContext(ctx, c) ([]*types.Service, error)`
 - `RemoveService(c, name) error` — DELETE `/system/services/{name}`
 - `ApplyService(svc, c, method) error` — POST or PUT `/system/services`
-- `RunService(c, name, token, endpoint, input) (io.ReadCloser, error)` — synchronous POST `/run/{name}`
+- `RunService(c, name, token, endpoint, input,header) (io.ReadCloser, error)` — synchronous POST `/run/{name}`
 - `JobService(c, name, token, endpoint, input) (io.ReadCloser, error)` — async POST `/job/{name}`
 - `ListLogs(c, name, page) (types.JobsResponse, error)` — GET `/system/logs/{name}`
 - `GetLogs(c, svcName, jobName, timestamps) (string, error)`

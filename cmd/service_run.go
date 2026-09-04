@@ -60,6 +60,7 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 	textInput, _ := cmd.Flags().GetString("text-input")
 	outputFile, _ := cmd.Flags().GetString("output")
 	decodeOutput, _ := cmd.Flags().GetBool("decode-output")
+	header, _ := cmd.Flags().GetString("header")
 	if inputFile == "" && textInput == "" {
 		return errors.New("you must specify \"--file-input\" or \"--text-input\" flag")
 	}
@@ -94,7 +95,7 @@ func serviceRunFunc(cmd *cobra.Command, args []string) error {
 		writer.Close()
 	}()
 	// Make the request
-	resBody, err := service.RunService(conf.Oscar[cluster], args[0], token, endpoint, reader)
+	resBody, err := service.RunService(conf.Oscar[cluster], args[0], token, endpoint, reader, header)
 	if err != nil {
 		return err
 	}
@@ -237,6 +238,7 @@ func makeServiceRunCmd() *cobra.Command {
 	serviceRunCmd.Flags().StringP("file-input", "f", "", "input file for the request")
 	serviceRunCmd.Flags().StringP("text-input", "i", "", "text input string for the request")
 	serviceRunCmd.Flags().StringP("output", "o", "", "file path to store the output")
+	serviceRunCmd.Flags().StringP("header", "H", "", "header on service invocation")
 	serviceRunCmd.Flags().Bool("decode-output", false, "decode the last base64-encoded line in the response and ignore logs")
 
 	return serviceRunCmd

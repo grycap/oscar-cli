@@ -25,6 +25,12 @@ functions:
         name: Cowsay
         image: ghcr.io/demo/cowsay:latest
         script: script.sh
+        environment:
+          variables:
+            OPENAI_BASE_URL: old-url
+            OPENAI_MODEL: old-model
+          secrets:
+            OPENAI_API_KEY: old-secret
         input:
         - storage_provider: minio.default
           path: cowsay/in
@@ -75,6 +81,7 @@ functions:
 
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "config.yaml")
+	envFile := filepath.Join(tmpDir, ".env")
 	configContent := fmt.Sprintf(`oscar:
   test:
     endpoint: "%s"
@@ -88,6 +95,14 @@ default: test
 	if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("writing config file: %v", err)
 	}
+	envContent := `OPENAI_API_KEY=new-secret
+OPENAI_BASE_URL=https://example.com/v1
+OPENAI_MODEL=new-model
+UNDECLARED=ignored
+`
+	if err := os.WriteFile(envFile, []byte(envContent), 0o600); err != nil {
+		t.Fatalf("writing env file: %v", err)
+	}
 
 	originalConfigPath := configPath
 	configPath = configFile
@@ -98,7 +113,7 @@ default: test
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{slug, "--api-base", gitServer.URL, "--cluster", "test", "--name", override})
+	cmd.SetArgs([]string{slug, "--api-base", gitServer.URL, "--cluster", "test", "--name", override, "--env-file", envFile})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("hub deploy command returned error: %v", err)
@@ -124,6 +139,21 @@ default: test
 	}
 	if applied.Script != scriptContent {
 		t.Fatalf("expected script content %q, got %q", scriptContent, applied.Script)
+	}
+	if got := applied.Environment.Secrets["OPENAI_API_KEY"]; got != "new-secret" {
+		t.Fatalf("expected OPENAI_API_KEY override, got %q", got)
+	}
+	if got := applied.Environment.Vars["OPENAI_BASE_URL"]; got != "https://example.com/v1" {
+		t.Fatalf("expected OPENAI_BASE_URL override, got %q", got)
+	}
+	if got := applied.Environment.Vars["OPENAI_MODEL"]; got != "new-model" {
+		t.Fatalf("expected OPENAI_MODEL override, got %q", got)
+	}
+	if _, ok := applied.Environment.Vars["UNDECLARED"]; ok {
+		t.Fatal("expected undeclared env key to be ignored")
+	}
+	if _, ok := applied.Environment.Secrets["UNDECLARED"]; ok {
+		t.Fatal("expected undeclared secret key to be ignored")
 	}
 	if applied.ClusterID != "test" {
 		t.Fatalf("expected cluster id test, got %s", applied.ClusterID)

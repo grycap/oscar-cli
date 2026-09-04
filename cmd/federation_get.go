@@ -50,6 +50,8 @@ func federationGetFunc(cmd *cobra.Command, args []string) error {
 		return encoder.Encode(federation)
 	case "table":
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 8, 2, ' ', 0)
+		fmt.Fprintln(w, "Topology: ", federation.Topology)
+		fmt.Fprintln(w, "Members: ", federation.Members.Len())
 		fmt.Fprintln(w, "TYPE\tCLUSTER ID\tSERVICE NAME\tURL\tPRIORITY")
 		for _, r := range federation.Members {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\n", r.Type, r.ClusterID, r.ServiceName, r.URL, r.Priority)
