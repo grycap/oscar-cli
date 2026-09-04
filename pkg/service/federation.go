@@ -19,7 +19,6 @@ package service
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -31,97 +30,74 @@ import (
 const federationPath = "/system/federation"
 
 // GetFederation returns the federated members of a service.
-func GetFederation(c *cluster.Cluster, serviceName string) (*types.FederationResponse, error) {
+func GetFederation(c *cluster.Cluster, serviceName string) (types.FederationResponse, error) {
+	var federation types.FederationResponse
 	getURL, err := url.Parse(c.Endpoint)
 	if err != nil {
-		return nil, cluster.ErrParsingEndpoint
+		return federation, cluster.ErrParsingEndpoint
 	}
 	getURL.Path = path.Join(getURL.Path, federationPath, serviceName)
 
 	req, err := http.NewRequest(http.MethodGet, getURL.String(), nil)
 	if err != nil {
-		return nil, cluster.ErrMakingRequest
+		return federation, cluster.ErrMakingRequest
 	}
 
 	client, err := c.GetClientSafe()
 	if err != nil {
-		return nil, err
+		return federation, err
 	}
 
 	res, err := client.Do(req)
 	if err != nil {
-		return nil, cluster.ErrSendingRequest
+		return federation, cluster.ErrSendingRequest
 	}
 	defer res.Body.Close()
 
 	if err := cluster.CheckStatusCode(res); err != nil {
-		return nil, err
+		return federation, err
 	}
 
-	var resp types.FederationResponse
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return nil, err
+	if err := json.NewDecoder(res.Body).Decode(&federation); err != nil {
+		return federation, err
 	}
 
-	return &resp, nil
+	return federation, nil
 }
 
 // CreateFederation creates federated members for a service.
 func CreateFederation(c *cluster.Cluster, serviceName string, replicas []types.Replica) error {
-	return federationRequest(c, http.MethodPost, serviceName, replicas)
+	return federationRequest(c, http.MethodPost, serviceName, types.FederationRequest{Members: replicas})
 }
 
 // UpdateFederation updates federated members for a service.
 func UpdateFederation(c *cluster.Cluster, serviceName string, replicas []types.Replica) error {
-	return federationRequest(c, http.MethodPut, serviceName, replicas)
+	return federationRequest(c, http.MethodPut, serviceName, types.FederationRequest{Update: replicas})
 }
 
 // DeleteFederation deletes federated members for a service.
-func DeleteFederation(c *cluster.Cluster, serviceName string, replica []types.Replica) error {
-	return federationRequest(c, http.MethodDelete, serviceName, replica)
+func DeleteFederation(c *cluster.Cluster, serviceName string, replicas []types.Replica) error {
+	return federationRequest(c, http.MethodDelete, serviceName, types.FederationRequest{Members: replicas, Delete: true})
 }
 
-func federationRequest(c *cluster.Cluster, method, serviceName string, replicas []types.Replica) error {
+func federationRequest(c *cluster.Cluster, method, serviceName string, payload types.FederationRequest) error {
 	reqURL, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return cluster.ErrParsingEndpoint
 	}
 	reqURL.Path = path.Join(reqURL.Path, federationPath, serviceName)
 
-	var body io.Reader
-	switch method {
-	case http.MethodDelete:
-		//cluster := make(map[string]types.Cluster)
-		/*for _, rep := range replicas {
-			cluster[rep.ClusterID] = types.Cluster{
-				Endpoint:  rep.URL,
-				SSLVerify: rep.SSLVerify,
-			}
-		}*/
-
-		/*cluster := types.Cluster{
-			Endpoint: replicas.URL,
-		}*/
-		bodyBytes, err := json.Marshal(types.FederationRequest{Members: replicas, Delete: true})
-		if err != nil {
-			return err
-		}
-		body = bytes.NewReader(bodyBytes)
-	default:
-		bodyBytes, err := json.Marshal(types.FederationRequest{Members: replicas})
-		if err != nil {
-			return err
-		}
-		body = bytes.NewReader(bodyBytes)
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
 	}
+	body := bytes.NewBuffer(bodyBytes)
 
 	req, err := http.NewRequest(method, reqURL.String(), body)
 	if err != nil {
 		return cluster.ErrMakingRequest
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
+	req.Header.Set("Content-Type", "application/json")
 
 	client, err := c.GetClientSafe()
 	if err != nil {

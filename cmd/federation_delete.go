@@ -38,14 +38,8 @@ func federationDeleteFunc(cmd *cobra.Command, args []string) error {
 	clusterID, _ := cmd.Flags().GetString("cluster-id")
 	serviceName, _ := cmd.Flags().GetString("service-name")
 
-	replica := []types.Replica{
-		{
-			Type:        "oscar",
-			ClusterID:   clusterID,
-			ServiceName: serviceName,
-		},
-	}
-	if err := service.DeleteFederation(conf.Oscar[clusterName], args[0], replica); err != nil {
+	replicas := []types.Replica{{Type: "oscar", ClusterID: clusterID, ServiceName: serviceName}}
+	if err := service.DeleteFederation(conf.Oscar[clusterName], args[0], replicas); err != nil {
 		return err
 	}
 
