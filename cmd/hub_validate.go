@@ -72,7 +72,7 @@ func hubValidateFunc(cmd *cobra.Command, args []string, opts *hubValidateOptions
 	client := hub.NewClient(append(opts.applyToClient(), hub.WithLogWriter(out))...)
 	if opts.printAcceptanceCommands {
 		fmt.Fprintf(out, "Acceptance commands for %s\n", args[0])
-		sets, err := client.AcceptanceCommands(cmd.Context(), args[0], opts.name, opts.localPath)
+		sets, err := client.AcceptanceCommands(cmd.Context(), args[0], opts.name, opts.localPath, conf.Oscar[clusterID])
 		if err != nil {
 			return err
 		}
@@ -80,8 +80,7 @@ func hubValidateFunc(cmd *cobra.Command, args []string, opts *hubValidateOptions
 		if serviceName == "" {
 			serviceName = args[0]
 		}
-		if requiresEndpointOrToken(sets) {
-			fmt.Fprintf(out, "export OSCAR_ENDPOINT=%q\n", conf.Oscar[clusterID].Endpoint)
+		if requiresServiceToken(sets) {
 			fmt.Fprintf(out, "export SERVICE_TOKEN=\"$(oscar-cli service get %s -c %s | awk '/^token:/{print $2; exit}')\"\n", serviceName, clusterID)
 		}
 		for _, set := range sets {
@@ -118,10 +117,10 @@ func hubValidateFunc(cmd *cobra.Command, args []string, opts *hubValidateOptions
 	return nil
 }
 
-func requiresEndpointOrToken(sets []hub.AcceptanceCommandSet) bool {
+func requiresServiceToken(sets []hub.AcceptanceCommandSet) bool {
 	for _, set := range sets {
 		for _, command := range set.Commands {
-			if strings.Contains(command, "${OSCAR_ENDPOINT") || strings.Contains(command, "${SERVICE_TOKEN}") {
+			if strings.Contains(command, "${SERVICE_TOKEN}") {
 				return true
 			}
 		}

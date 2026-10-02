@@ -135,6 +135,34 @@ func TestGetClusterConfig(t *testing.T) {
 	}
 }
 
+func TestUsesExposedServiceSubdomains(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		want       bool
+		wantError  bool
+	}{
+		{"subdomain", `{"config":{"exposed_services_use_subdomain_route":true},"minio_provider":{"secret_key":"private"}}`, true, false},
+		{"legacy", `{"config":{"exposed_services_use_subdomain_route":false}}`, false, false},
+		{"missing config", `{}`, false, true},
+		{"malformed response", `invalid`, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/system/config" {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			got, err := (&Cluster{Endpoint: server.URL}).UsesExposedServiceSubdomains()
+			if got != tc.want || (err != nil) != tc.wantError {
+				t.Fatalf("UsesExposedServiceSubdomains() = %v, %v; want %v, error=%v", got, err, tc.want, tc.wantError)
+			}
+		})
+	}
+}
+
 func TestGetClusterStatus(t *testing.T) {
 	expected := StatusInfo{
 		Cluster: ClusterStatus{

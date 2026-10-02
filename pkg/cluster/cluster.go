@@ -255,6 +255,44 @@ func (cluster *Cluster) GetClusterConfig() (cfg types.Config, err error) {
 	return cfg, nil
 }
 
+// UsesExposedServiceSubdomains reads the routing flag from OSCAR's wrapped
+// /system/config response. The v4.1 API types used by this CLI predate the flag.
+func (cluster *Cluster) UsesExposedServiceSubdomains() (bool, error) {
+	endpoint, err := url.Parse(cluster.Endpoint)
+	if err != nil {
+		return false, ErrParsingEndpoint
+	}
+	endpoint.Path = path.Join(endpoint.Path, configPath)
+	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return false, ErrMakingRequest
+	}
+	client, err := cluster.GetClientSafe()
+	if err != nil {
+		return false, err
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return false, ErrSendingRequest
+	}
+	defer res.Body.Close()
+	if err := CheckStatusCode(res); err != nil {
+		return false, err
+	}
+	var response struct {
+		Config *struct {
+			UseSubdomainRoute bool `json:"exposed_services_use_subdomain_route"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return false, err
+	}
+	if response.Config == nil {
+		return false, errors.New("missing config in OSCAR cluster response")
+	}
+	return response.Config.UseSubdomainRoute, nil
+}
+
 // GetClusterStatus returns the status of an OSCAR cluster
 func (cluster *Cluster) GetClusterStatus() (status StatusInfo, err error) {
 	getStatusURL, err := url.Parse(cluster.Endpoint)

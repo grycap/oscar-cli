@@ -124,6 +124,25 @@ func TestParseAcceptanceCommandHTTP(t *testing.T) {
 	}
 }
 
+func TestExposedServiceURL(t *testing.T) {
+	tests := []struct {
+		name, endpoint, service, requestPath, want string
+		subdomain                                  bool
+	}{
+		{"DNS route", "https://localhost.direct", "posenet-tf", "/v2/models/posenetclas/predict/", "https://posenet-tf.localhost.direct/v2/models/posenetclas/predict/", true},
+		{"DNS route with port and name override", "http://example.org:8443/", "body-pose", "v2/", "http://body-pose.example.org:8443/v2/", true},
+		{"legacy path", "https://example.org/", "posenet-tf", "/v2/", "https://example.org/system/services/posenet-tf/exposed/v2/", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := exposedServiceURL(tt.endpoint, tt.service, tt.requestPath, tt.subdomain)
+			if err != nil || got != tt.want {
+				t.Fatalf("exposedServiceURL() = %q, %v; want %q", got, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestInvokeExposedHTTPUsesServiceAuthAndMultipart(t *testing.T) {
 	const (
 		serviceName  = "demo"
@@ -202,6 +221,7 @@ func TestInvokeExposedHTTPUsesServiceAuthAndMultipart(t *testing.T) {
 			HTTPExpectStatus:   http.StatusOK,
 		},
 		[]httpPayload{{Name: "001.jpg", Content: []byte("image-bytes"), ContentType: "image/jpeg"}},
+		false,
 	)
 	if err != nil {
 		t.Fatalf("invokeExposedHTTP returned error: %v", err)
@@ -273,7 +293,15 @@ func TestAcceptanceCommandsRenderHTTPAndLocalPaths(t *testing.T) {
 	}
 
 	client := NewClient()
-	sets, err := client.AcceptanceCommands(context.Background(), "posenet-tf", "body-pose", dir)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/system/config" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"config":{"exposed_services_use_subdomain_route":true}}`))
+	}))
+	defer server.Close()
+	sets, err := client.AcceptanceCommands(context.Background(), "posenet-tf", "body-pose", dir, &cluster.Cluster{Endpoint: server.URL})
 	if err != nil {
 		t.Fatalf("AcceptanceCommands returned error: %v", err)
 	}
@@ -290,8 +318,8 @@ func TestAcceptanceCommandsRenderHTTPAndLocalPaths(t *testing.T) {
 	if !strings.Contains(command, "body-pose:${SERVICE_TOKEN}") {
 		t.Fatalf("expected service auth placeholder, got %q", command)
 	}
-	if !strings.Contains(command, "/system/services/body-pose/exposed/v2/models/posenetclas/predict/") {
-		t.Fatalf("expected exposed path, got %q", command)
+	if !strings.Contains(command, "http://body-pose."+strings.TrimPrefix(server.URL, "http://")+"/v2/models/posenetclas/predict/") {
+		t.Fatalf("expected service subdomain URL, got %q", command)
 	}
 	if !strings.Contains(command, "--output './acceptance-output.zip'") && !strings.Contains(command, "--output ./acceptance-output.zip") {
 		t.Fatalf("expected output redirection, got %q", command)

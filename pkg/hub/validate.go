@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/textproto"
 	"net/url"
@@ -101,6 +102,10 @@ func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *c
 	if err != nil {
 		return nil, err
 	}
+	useSubdomain, err := exposedServicesUseSubdomain(clusterCfg, tests)
+	if err != nil {
+		return nil, err
+	}
 
 	serviceCache := make(map[string]*types.Service)
 	results := make([]AcceptanceResult, 0, len(tests))
@@ -110,7 +115,7 @@ func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *c
 			testName = test.ID
 		}
 		c.logf("Running acceptance test: %s\n", testName)
-		res := c.runAcceptanceTest(ctx, repoPath, slug, test, clusterCfg, serviceNameOverride, localCratePath, serviceCache, header)
+		res := c.runAcceptanceTest(ctx, repoPath, slug, test, clusterCfg, serviceNameOverride, localCratePath, serviceCache, header, useSubdomain)
 		c.logAcceptanceResult(res)
 		results = append(results, res)
 	}
@@ -119,26 +124,109 @@ func (c *Client) ValidateService(ctx context.Context, slug string, clusterCfg *c
 }
 
 // AcceptanceCommands renders the acceptance tests for the provided slug as runnable shell commands.
-func (c *Client) AcceptanceCommands(ctx context.Context, slug string, serviceNameOverride string, localRoot string) ([]AcceptanceCommandSet, error) {
+func (c *Client) AcceptanceCommands(ctx context.Context, slug string, serviceNameOverride string, localRoot string, clusterCfg *cluster.Cluster) ([]AcceptanceCommandSet, error) {
 	if strings.TrimSpace(slug) == "" {
 		return nil, errors.New("service slug cannot be empty")
+	}
+	if clusterCfg == nil {
+		return nil, errors.New("cluster configuration is required")
 	}
 
 	_, localCratePath, tests, err := c.loadAcceptanceTests(ctx, slug, localRoot)
 	if err != nil {
 		return nil, err
 	}
+	useSubdomain, err := exposedServicesUseSubdomain(clusterCfg, tests)
+	if err != nil {
+		return nil, err
+	}
 
 	sets := make([]AcceptanceCommandSet, 0, len(tests))
 	for _, test := range tests {
+		for _, step := range test.Steps {
+			parsed := step.ParsedCommand
+			if parsed == nil {
+				cmd, parseErr := parseAcceptanceCommand(step.Command)
+				if parseErr == nil {
+					parsed = &cmd
+				}
+			}
+			if parsed != nil && parsed.Kind == stepCommandHTTP {
+				serviceName := strings.TrimSpace(serviceNameOverride)
+				if serviceName == "" {
+					serviceName = strings.TrimSpace(parsed.ServiceName)
+				}
+				if serviceName == "" {
+					serviceName = slug
+				}
+				if _, err := exposedServiceURL(clusterCfg.Endpoint, serviceName, parsed.HTTPPath, useSubdomain); err != nil {
+					return nil, fmt.Errorf("rendering HTTP acceptance command for step %s: %w", step.ID, err)
+				}
+			}
+		}
 		set := AcceptanceCommandSet{
 			Test:     test,
-			Commands: renderAcceptanceCommands(test, slug, serviceNameOverride, localCratePath),
+			Commands: renderAcceptanceCommands(test, slug, serviceNameOverride, localCratePath, clusterCfg.Endpoint, useSubdomain),
 		}
 		sets = append(sets, set)
 	}
 
 	return sets, nil
+}
+
+// Only HTTP acceptance actions need the cluster's routing mode. Other tests can
+// still be printed without contacting the cluster.
+func exposedServicesUseSubdomain(clusterCfg *cluster.Cluster, tests []AcceptanceTest) (bool, error) {
+	for _, test := range tests {
+		for _, step := range test.Steps {
+			parsed := step.ParsedCommand
+			if parsed == nil {
+				cmd, err := parseAcceptanceCommand(step.Command)
+				if err == nil {
+					parsed = &cmd
+				}
+			}
+			if parsed != nil && parsed.Kind == stepCommandHTTP {
+				usesSubdomain, err := clusterCfg.UsesExposedServiceSubdomains()
+				if err != nil {
+					return false, fmt.Errorf("getting exposed-service routing configuration: %w", err)
+				}
+				return usesSubdomain, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// The API endpoint and the service endpoint share a DNS suffix, but the
+// HTTPRoute for an exposed service matches its own hostname and the root path.
+func exposedServiceURL(endpoint, serviceName, requestPath string, useSubdomain bool) (string, error) {
+	baseURL, err := url.Parse(endpoint)
+	if err != nil || baseURL.Hostname() == "" || (baseURL.Scheme != "http" && baseURL.Scheme != "https") {
+		return "", cluster.ErrParsingEndpoint
+	}
+	requestPath = strings.TrimSpace(requestPath)
+	if requestPath == "" {
+		return "", errors.New("http path cannot be empty")
+	}
+	if useSubdomain {
+		host := serviceName + "." + baseURL.Hostname()
+		port := baseURL.Port()
+		baseURL.Host = host
+		if port != "" {
+			baseURL.Host = net.JoinHostPort(host, port)
+		}
+		baseURL.Path = "/"
+	} else {
+		baseURL.Path = path.Join(baseURL.Path, "/system/services", serviceName, "exposed")
+	}
+	baseURL.Path = path.Join(baseURL.Path, requestPath)
+	if strings.HasSuffix(requestPath, "/") && !strings.HasSuffix(baseURL.Path, "/") {
+		baseURL.Path += "/"
+	}
+	baseURL.RawQuery = ""
+	baseURL.Fragment = ""
+	return baseURL.String(), nil
 }
 
 func (c *Client) loadAcceptanceTests(ctx context.Context, slug string, localRoot string) (string, string, []AcceptanceTest, error) {
@@ -178,7 +266,7 @@ func (c *Client) loadAcceptanceTests(ctx context.Context, slug string, localRoot
 	return repoPath, localCratePath, tests, nil
 }
 
-func (c *Client) runAcceptanceTest(ctx context.Context, repoPath, slug string, test AcceptanceTest, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service, header string) AcceptanceResult {
+func (c *Client) runAcceptanceTest(ctx context.Context, repoPath, slug string, test AcceptanceTest, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service, header string, useSubdomain bool) AcceptanceResult {
 	result := AcceptanceResult{Test: test}
 
 	steps := test.Steps
@@ -201,7 +289,7 @@ func (c *Client) runAcceptanceTest(ctx context.Context, repoPath, slug string, t
 	var lastOutput string
 
 	for _, step := range steps {
-		stepRes := c.executeAcceptanceStep(ctx, repoPath, slug, test, step, supplyCache, clusterCfg, serviceNameOverride, localCratePath, svcCache, tempDir, header)
+		stepRes := c.executeAcceptanceStep(ctx, repoPath, slug, test, step, supplyCache, clusterCfg, serviceNameOverride, localCratePath, svcCache, tempDir, header, useSubdomain)
 		result.StepResults = append(result.StepResults, stepRes)
 
 		if stepRes.Output != "" {
@@ -232,7 +320,7 @@ func buildTestSupplyMap(test AcceptanceTest) map[string]TestInput {
 	return supply
 }
 
-func renderAcceptanceCommands(test AcceptanceTest, slug string, serviceNameOverride string, localCratePath string) []string {
+func renderAcceptanceCommands(test AcceptanceTest, slug string, serviceNameOverride string, localCratePath, endpoint string, useSubdomain bool) []string {
 	if len(test.Steps) == 0 {
 		return nil
 	}
@@ -260,14 +348,14 @@ func renderAcceptanceCommands(test AcceptanceTest, slug string, serviceNameOverr
 		}
 
 		stepSupply := mergeSupplyMaps(supply, step.Inputs)
-		if rendered := renderParsedCommand(*parsed, step, serviceName, stepSupply, localCratePath); rendered != "" {
+		if rendered := renderParsedCommand(*parsed, step, serviceName, stepSupply, localCratePath, endpoint, useSubdomain); rendered != "" {
 			commands = append(commands, rendered)
 		}
 	}
 	return commands
 }
 
-func renderParsedCommand(cmd parsedCommand, step AcceptanceStep, serviceName string, supply map[string]TestInput, localCratePath string) string {
+func renderParsedCommand(cmd parsedCommand, step AcceptanceStep, serviceName string, supply map[string]TestInput, localCratePath, endpoint string, useSubdomain bool) string {
 	switch cmd.Kind {
 	case stepCommandRun:
 		args := []string{"oscar-cli", "service", "run", serviceName}
@@ -314,13 +402,13 @@ func renderParsedCommand(cmd parsedCommand, step AcceptanceStep, serviceName str
 		}
 		return shellJoin([]string{"sleep", strconv.Itoa(int(cmd.WaitDuration.Round(time.Second).Seconds()))})
 	case stepCommandHTTP:
-		return renderHTTPCurlCommand(cmd, step, serviceName, supply, localCratePath)
+		return renderHTTPCurlCommand(cmd, step, serviceName, supply, localCratePath, endpoint, useSubdomain)
 	default:
 		return ""
 	}
 }
 
-func renderHTTPCurlCommand(cmd parsedCommand, step AcceptanceStep, serviceName string, supply map[string]TestInput, localCratePath string) string {
+func renderHTTPCurlCommand(cmd parsedCommand, step AcceptanceStep, serviceName string, supply map[string]TestInput, localCratePath, endpoint string, useSubdomain bool) string {
 	args := []string{"curl", "-sS"}
 	method := strings.ToUpper(strings.TrimSpace(cmd.HTTPMethod))
 	if method == "" {
@@ -352,11 +440,11 @@ func renderHTTPCurlCommand(cmd parsedCommand, step AcceptanceStep, serviceName s
 	if outputPath := suggestedOutputPath(step); outputPath != "" {
 		args = append(args, "--output", outputPath)
 	}
-	requestPath := strings.TrimSpace(cmd.HTTPPath)
-	if !strings.HasPrefix(requestPath, "/") {
-		requestPath = "/" + requestPath
+	requestURL, err := exposedServiceURL(endpoint, serviceName, cmd.HTTPPath, useSubdomain)
+	if err != nil {
+		return ""
 	}
-	args = append(args, "${OSCAR_ENDPOINT%/}/system/services/"+serviceName+"/exposed"+requestPath)
+	args = append(args, requestURL)
 	return shellJoin(args)
 }
 
@@ -444,7 +532,7 @@ func shellQuote(value string) string {
 	return value
 }
 
-func (c *Client) executeAcceptanceStep(ctx context.Context, repoPath, slug string, test AcceptanceTest, step AcceptanceStep, baseSupply map[string]TestInput, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service, tempDir string, header string) AcceptanceStepResult {
+func (c *Client) executeAcceptanceStep(ctx context.Context, repoPath, slug string, test AcceptanceTest, step AcceptanceStep, baseSupply map[string]TestInput, clusterCfg *cluster.Cluster, serviceNameOverride string, localCratePath string, svcCache map[string]*types.Service, tempDir string, header string, useSubdomain bool) AcceptanceStepResult {
 	result := AcceptanceStepResult{Step: step}
 
 	if strings.TrimSpace(step.Command) == "" {
@@ -656,7 +744,7 @@ func (c *Client) executeAcceptanceStep(ctx context.Context, repoPath, slug strin
 			return result
 		}
 
-		responseData, responseMedia, statusCode, err := invokeExposedHTTP(clusterCfg, svc, serviceName, *parsed, payloads)
+		responseData, responseMedia, statusCode, err := invokeExposedHTTP(clusterCfg, svc, serviceName, *parsed, payloads, useSubdomain)
 		if err != nil {
 			result.Err = err
 			return result
@@ -1467,7 +1555,7 @@ func invokeServiceWithContent(clusterCfg *cluster.Cluster, serviceName string, p
 	return raw, nil
 }
 
-func invokeExposedHTTP(clusterCfg *cluster.Cluster, svc *types.Service, serviceName string, cmd parsedCommand, payloads []httpPayload) ([]byte, string, int, error) {
+func invokeExposedHTTP(clusterCfg *cluster.Cluster, svc *types.Service, serviceName string, cmd parsedCommand, payloads []httpPayload, useSubdomain bool) ([]byte, string, int, error) {
 	if clusterCfg == nil {
 		return nil, "", 0, errors.New("cluster configuration is required")
 	}
@@ -1475,23 +1563,9 @@ func invokeExposedHTTP(clusterCfg *cluster.Cluster, svc *types.Service, serviceN
 		return nil, "", 0, errors.New("service definition is required")
 	}
 
-	baseURL, err := url.Parse(clusterCfg.Endpoint)
+	requestURL, err := exposedServiceURL(clusterCfg.Endpoint, serviceName, cmd.HTTPPath, useSubdomain)
 	if err != nil {
-		return nil, "", 0, cluster.ErrParsingEndpoint
-	}
-
-	requestPath := strings.TrimSpace(cmd.HTTPPath)
-	if requestPath == "" {
-		return nil, "", 0, errors.New("http path cannot be empty")
-	}
-	hasTrailingSlash := strings.HasSuffix(requestPath, "/")
-	if !strings.HasPrefix(requestPath, "/") {
-		requestPath = "/" + requestPath
-	}
-	baseURL.Path = path.Join(baseURL.Path, "/system/services", serviceName, "exposed")
-	baseURL.Path = path.Join(baseURL.Path, requestPath)
-	if hasTrailingSlash && !strings.HasSuffix(baseURL.Path, "/") {
-		baseURL.Path += "/"
+		return nil, "", 0, err
 	}
 
 	var body io.Reader
@@ -1534,7 +1608,7 @@ func invokeExposedHTTP(clusterCfg *cluster.Cluster, svc *types.Service, serviceN
 		contentType = writer.FormDataContentType()
 	}
 
-	req, err := http.NewRequest(method, baseURL.String(), body)
+	req, err := http.NewRequest(method, requestURL, body)
 	if err != nil {
 		return nil, "", 0, cluster.ErrMakingRequest
 	}
