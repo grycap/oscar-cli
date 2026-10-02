@@ -124,6 +124,22 @@ func TestParseAcceptanceCommandHTTP(t *testing.T) {
 	}
 }
 
+func TestMediaTypeMatchesWAVAliases(t *testing.T) {
+	wav := []byte("RIFF\x24\x00\x00\x00WAVEfmt ")
+	detected := http.DetectContentType(wav)
+	if detected != "audio/wave" {
+		t.Fatalf("expected WAV signature to be detected as audio/wave, got %q", detected)
+	}
+	for _, expected := range [][]string{{"audio/wav"}, {"audio/wave"}} {
+		if !mediaTypeMatches(detected, expected) {
+			t.Errorf("mediaTypeMatches(%q, %v) = false", detected, expected)
+		}
+	}
+	if mediaTypeMatches(detected, []string{"audio/mpeg"}) {
+		t.Fatal("WAV detection must not match an unrelated media type")
+	}
+}
+
 func TestInvokeExposedHTTPUsesServiceAuthAndMultipart(t *testing.T) {
 	const (
 		serviceName  = "demo"

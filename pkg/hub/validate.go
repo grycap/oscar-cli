@@ -863,11 +863,21 @@ func mediaTypeMatches(detected string, expected []string) bool {
 		return false
 	}
 	for _, exp := range expected {
-		if normalizeMediaType(exp) == detected {
+		if mediaTypesEquivalent(normalizeMediaType(exp), detected) {
 			return true
 		}
 	}
 	return false
+}
+
+func mediaTypesEquivalent(expected, detected string) bool {
+	if expected == detected {
+		return expected != ""
+	}
+	// http.DetectContentType reports RIFF/WAVE files as audio/wave, while
+	// their registered media type and common RO-Crate declarations use audio/wav.
+	return expected == "audio/wav" && detected == "audio/wave" ||
+		expected == "audio/wave" && detected == "audio/wav"
 }
 
 func normalizeMediaType(mt string) string {
