@@ -4,6 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -39,6 +42,54 @@ func TestParseAcceptanceCommandRun(t *testing.T) {
 
 	if cmd.RunDirective.Value != "payload" {
 		t.Fatalf("expected directive value payload, got %s", cmd.RunDirective.Value)
+	}
+}
+
+func TestInvokeServiceWithContentDecodesOutputAfterLogs(t *testing.T) {
+	expected := "The quick brown fox jumped over the lazy dog\nAnalysis:\nWords: 9\nCharacters: 44\n"
+	encoded := base64.StdEncoding.EncodeToString([]byte(expected))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/system/services/simple-test" {
+			_ = json.NewEncoder(w).Encode(&types.Service{Name: "simple-test", Token: "test-token"})
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/run/simple-test" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = fmt.Fprintf(w, "This is debug message\nFile processed\n%s\n", encoded)
+	}))
+	defer server.Close()
+
+	output, err := invokeServiceWithContent(&cluster.Cluster{Endpoint: server.URL, AuthUser: "user", AuthPassword: "pass", SSLVerify: true}, "simple-test", []byte("input"), "")
+	if err != nil {
+		t.Fatalf("invokeServiceWithContent returned error: %v", err)
+	}
+	if string(output) != expected {
+		t.Fatalf("expected decoded output %q, got %q", expected, output)
+	}
+	if passed, details := evaluateExpectation("Characters: 44", string(output)); !passed {
+		t.Fatalf("acceptance check failed: %s", details)
+	}
+}
+
+func TestInvokeServiceWithContentPreservesUnencodedResponse(t *testing.T) {
+	response := "plain output: Characters: 44\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/system/services/simple-test" {
+			_ = json.NewEncoder(w).Encode(&types.Service{Name: "simple-test", Token: "test-token"})
+			return
+		}
+		_, _ = io.WriteString(w, response)
+	}))
+	defer server.Close()
+
+	output, err := invokeServiceWithContent(&cluster.Cluster{Endpoint: server.URL, AuthUser: "user", AuthPassword: "pass", SSLVerify: true}, "simple-test", []byte("input"), "")
+	if err != nil {
+		t.Fatalf("invokeServiceWithContent returned error: %v", err)
+	}
+	if string(output) != response {
+		t.Fatalf("expected raw response %q, got %q", response, output)
 	}
 }
 

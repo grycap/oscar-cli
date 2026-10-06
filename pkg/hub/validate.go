@@ -1458,12 +1458,20 @@ func invokeServiceWithContent(clusterCfg *cluster.Cluster, serviceName string, p
 		return nil, fmt.Errorf("reading service response: %w", err)
 	}
 
-	trimmed := bytes.TrimSpace(raw)
-	decoded, decodeErr := base64.StdEncoding.DecodeString(string(trimmed))
-	if decodeErr == nil {
-		return decoded, nil
+	// Synchronous responses may include logs before the base64-encoded output.
+	// Check complete lines from the end, as service run --decode-output does.
+	lines := bytes.Split(raw, []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := bytes.TrimSpace(lines[i])
+		if len(line) == 0 {
+			continue
+		}
+		decoded, err := base64.StdEncoding.Strict().DecodeString(string(line))
+		if err == nil {
+			return decoded, nil
+		}
 	}
-	// Fallback to raw response when it is not base64 encoded.
+	// Preserve unencoded responses when no base64 output was found.
 	return raw, nil
 }
 
