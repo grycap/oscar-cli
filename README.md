@@ -243,6 +243,7 @@ Flags:
       --local-path string  use a local directory containing the RO-Crate metadata instead of fetching it from GitHub
       --owner string      GitHub owner that hosts the curated services (default "grycap")
       --path string       subdirectory inside the repository that contains the services
+      --preview           show the resolved service FDL in YAML (secrets redacted) without accessing a cluster
       --ref string        Git reference (branch, tag, or commit) to query (default "main")
   -n, --name string       override the OSCAR service and primary bucket names during deployment
       --repo string       GitHub repository that hosts the curated services (default "oscar-hub")
@@ -254,6 +255,28 @@ Global Flags:
 When `--env-file` is provided, matching keys override values declared under
 `environment.variables` and `environment.secrets` in the service FDL. Keys that
 are not declared by the service are ignored.
+
+For OSCAR Agent Profile 1.1 crates, `hub deploy` resolves `agentSoul` and
+`agentSkills` from the crate's local RO-Crate files into declared `AGENT_SOUL`
+and `AGENT_SKILLS` variables. Skills are sorted by `@id` and joined with two
+newlines. `--env-file` values take precedence over the crate defaults. Use
+`--preview` to inspect the resolved FDL, including embedded script and guidance
+as readable multiline YAML. It applies `--name` to the service and storage paths,
+redacts declared secrets and fields with credential-like names, and neither
+requires a cluster configuration nor contacts the OSCAR API. If the FDL has
+multiple services, preview and deploy use the same one: the first nonempty
+entry in FDL order, choosing the lexicographically first cluster key within
+that entry. It shows the source FDL prepared for deployment, not the
+cluster-enriched HTTP payload.
+Free-form text such as scripts or agent guidance may still contain sensitive
+instructions; redirect preview output only to a safe location. An unresolved
+`YOUR_AGENT_SOUL` or `YOUR_AGENT_SKILLS` blocks deploy.
+
+For example, to inspect an agent from the local oscar-agents checkout:
+
+```
+oscar-cli hub deploy pdf-summarizer --local-path ../oscar-agents/crates --preview
+```
 
 Default curated source: https://github.com/grycap/oscar-hub/tree/main
 

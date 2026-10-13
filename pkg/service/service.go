@@ -49,6 +49,8 @@ type FDL struct {
 	} `json:"functions" binding:"required"`
 	StorageProviders *types.StorageProviders  `json:"storage_providers,omitempty"`
 	Clusters         map[string]types.Cluster `json:"clusters,omitempty"`
+	// Source is the original document for a readable preview; never sent to OSCAR.
+	Source []byte `json:"-" yaml:"-"`
 }
 
 // ReadFDL reads the content of FDL file and returns a valid FDL struct with the scripts and StorageProviders embedded into the services
