@@ -1003,7 +1003,7 @@ func loadLocalMetadata(localRoot, slug string) ([]byte, string, error) {
 		}
 	}
 
-	return nil, "", fmt.Errorf("ro-crate metadata not found for %s under %s", slug, localRoot)
+	return nil, "", fmt.Errorf("%w: ro-crate metadata not found for %s under %s", ErrMetadataNotFound, slug, localRoot)
 }
 
 func readFromRepository(ctx context.Context, client *Client, repoPath, relative string) ([]byte, error) {
