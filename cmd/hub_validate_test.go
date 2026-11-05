@@ -14,18 +14,18 @@ func TestMakeHubValidateCmdIncludesPrintAcceptanceCommandsFlag(t *testing.T) {
 	}
 }
 
-func TestRequiresEndpointOrToken(t *testing.T) {
+func TestRequiresServiceToken(t *testing.T) {
 	sets := []hub.AcceptanceCommandSet{
 		{Commands: []string{"echo hello"}},
 	}
-	if requiresEndpointOrToken(sets) {
-		t.Fatalf("expected false when commands do not use endpoint/token placeholders")
+	if requiresServiceToken(sets) {
+		t.Fatalf("expected false when commands do not use a service token")
 	}
 
 	sets = []hub.AcceptanceCommandSet{
-		{Commands: []string{"curl '${OSCAR_ENDPOINT%/}/system/services/demo/exposed' -u demo:${SERVICE_TOKEN}"}},
+		{Commands: []string{"curl https://demo.example.org/v2 -u demo:${SERVICE_TOKEN}"}},
 	}
-	if !requiresEndpointOrToken(sets) {
-		t.Fatalf("expected true when command uses endpoint/token placeholders")
+	if !requiresServiceToken(sets) {
+		t.Fatalf("expected true when command uses service token placeholder")
 	}
 }
