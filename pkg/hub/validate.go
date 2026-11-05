@@ -951,11 +951,21 @@ func mediaTypeMatches(detected string, expected []string) bool {
 		return false
 	}
 	for _, exp := range expected {
-		if normalizeMediaType(exp) == detected {
+		if mediaTypesEquivalent(normalizeMediaType(exp), detected) {
 			return true
 		}
 	}
 	return false
+}
+
+func mediaTypesEquivalent(expected, detected string) bool {
+	if expected == detected {
+		return expected != ""
+	}
+	// http.DetectContentType reports RIFF/WAVE files as audio/wave, while
+	// their registered media type and common RO-Crate declarations use audio/wav.
+	return expected == "audio/wav" && detected == "audio/wave" ||
+		expected == "audio/wave" && detected == "audio/wav"
 }
 
 func normalizeMediaType(mt string) string {
@@ -1081,7 +1091,7 @@ func loadLocalMetadata(localRoot, slug string) ([]byte, string, error) {
 		}
 	}
 
-	return nil, "", fmt.Errorf("ro-crate metadata not found for %s under %s", slug, localRoot)
+	return nil, "", fmt.Errorf("%w: ro-crate metadata not found for %s under %s", ErrMetadataNotFound, slug, localRoot)
 }
 
 func readFromRepository(ctx context.Context, client *Client, repoPath, relative string) ([]byte, error) {
@@ -1546,12 +1556,20 @@ func invokeServiceWithContent(clusterCfg *cluster.Cluster, serviceName string, p
 		return nil, fmt.Errorf("reading service response: %w", err)
 	}
 
-	trimmed := bytes.TrimSpace(raw)
-	decoded, decodeErr := base64.StdEncoding.DecodeString(string(trimmed))
-	if decodeErr == nil {
-		return decoded, nil
+	// Synchronous responses may include logs before the base64-encoded output.
+	// Check complete lines from the end, as service run --decode-output does.
+	lines := bytes.Split(raw, []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := bytes.TrimSpace(lines[i])
+		if len(line) == 0 {
+			continue
+		}
+		decoded, err := base64.StdEncoding.Strict().DecodeString(string(line))
+		if err == nil {
+			return decoded, nil
+		}
 	}
-	// Fallback to raw response when it is not base64 encoded.
+	// Preserve unencoded responses when no base64 output was found.
 	return raw, nil
 }
 

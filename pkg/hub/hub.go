@@ -509,6 +509,7 @@ func (c *Client) FetchFDL(ctx context.Context, slug string) (*service.FDL, error
 	if err := yaml.Unmarshal(rawFDL, &parsed); err != nil {
 		return nil, fmt.Errorf("parsing FDL: %w", err)
 	}
+	parsed.Source = rawFDL
 
 	if err := c.embedArtifacts(ctx, repoPath, &parsed); err != nil {
 		return nil, err
@@ -642,6 +643,7 @@ func readFDLFromFile(path string) (*service.FDL, error) {
 	if err := yaml.Unmarshal(content, fdl); err != nil {
 		return nil, fmt.Errorf("the FDL file %s is not valid, please check its definition", path)
 	}
+	fdl.Source = content
 
 	baseDir := filepath.Dir(path)
 

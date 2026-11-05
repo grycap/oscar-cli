@@ -53,6 +53,8 @@ functions:
 			fmt.Fprint(w, fdlContent)
 		case "/repos/grycap/oscar-hub/contents/cowsay/script.sh", "/repos/grycap/oscar-hub/contents/crates/cowsay/script.sh":
 			fmt.Fprint(w, scriptContent)
+		case "/repos/grycap/oscar-hub/contents/crates/cowsay/ro-crate-metadata.json":
+			http.NotFound(w, r)
 		default:
 			t.Fatalf("unexpected github request: %s", r.URL.Path)
 		}

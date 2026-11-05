@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/grycap/oscar-cli/v2/pkg/cluster"
@@ -24,6 +25,7 @@ type hubDeployOptions struct {
 	name      string
 	localPath string
 	envFile   string
+	preview   bool
 }
 
 func (o *hubDeployOptions) applyToClient() []hub.Option {
@@ -41,20 +43,8 @@ func (o *hubDeployOptions) applyToClient() []hub.Option {
 
 func hubDeployFunc(cmd *cobra.Command, args []string, opts *hubDeployOptions) error {
 	slug := args[0]
-
-	conf, err := config.ReadConfig(configPath)
-	if err != nil {
-		return err
-	}
-
-	clusterName, err := getCluster(cmd, conf)
-	if err != nil {
-		return err
-	}
-
-	clusterCfg := conf.Oscar[clusterName]
-
 	var fdl *service.FDL
+	var err error
 
 	if strings.TrimSpace(opts.localPath) != "" {
 		if _, err := os.Stat(opts.localPath); err != nil {
@@ -64,34 +54,90 @@ func hubDeployFunc(cmd *cobra.Command, args []string, opts *hubDeployOptions) er
 		if err != nil {
 			return err
 		}
+		if err := hub.MaterializeLocalAgentGuidance(opts.localPath, slug, fdl); err != nil {
+			return err
+		}
 	} else {
 		client := hub.NewClient(opts.applyToClient()...)
 		fdl, err = client.FetchFDL(cmd.Context(), slug)
 		if err != nil {
 			return err
 		}
+		if err := client.MaterializeRemoteAgentGuidance(cmd.Context(), slug, fdl); err != nil {
+			return err
+		}
 	}
+	var envFileValues map[string]string
+	if strings.TrimSpace(opts.envFile) != "" {
+		envFileValues, err = service.ReadEnvFile(opts.envFile)
+		if err != nil {
+			return err
+		}
+	}
+	for _, entry := range fdl.Functions.Oscar {
+		for _, svc := range entry {
+			service.ApplyEnvFileValuesToService(svc, envFileValues)
+			if svc == nil {
+				continue
+			}
+			for _, key := range []string{"AGENT_SOUL", "AGENT_SKILLS"} {
+				if value, ok := svc.Environment.Vars[key]; ok && value == "YOUR_"+key {
+					return fmt.Errorf("%s contains unresolved agent guidance; provide valid RO-Crate metadata or override it with --env-file", key)
+				}
+			}
+		}
+	}
+	// Select once for both preview and deployment. Preserve FDL list order and
+	// sort keys within an entry so multi-service definitions are deterministic.
+	var selected *service.FDL
+	for _, entry := range fdl.Functions.Oscar {
+		clusterIDs := make([]string, 0, len(entry))
+		for clusterID := range entry {
+			clusterIDs = append(clusterIDs, clusterID)
+		}
+		sort.Strings(clusterIDs)
+		for _, clusterID := range clusterIDs {
+			svc := entry[clusterID]
+			if svc == nil {
+				continue
+			}
+			if opts.name != "" {
+				overrideServiceName(svc, opts.name)
+			}
+			selected = new(service.FDL)
+			*selected = *fdl
+			selected.Functions.Oscar = []map[string]*types.Service{{clusterID: svc}}
+			break
+		}
+		if selected != nil {
+			break
+		}
+	}
+	if selected == nil {
+		return errors.New("the FDL does not contain an OSCAR service definition")
+	}
+	if opts.preview {
+		return printHubPreview(cmd.OutOrStdout(), selected)
+	}
+
+	conf, err := config.ReadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	clusterName, err := getCluster(cmd, conf)
+	if err != nil {
+		return err
+	}
+	clusterCfg := conf.Oscar[clusterName]
 
 	clusterConfig, err := clusterCfg.GetClusterConfig()
 	if err != nil {
 		return err
 	}
 
-	serviceDef, err := buildServiceFromFDL(fdl, clusterName, clusterCfg, clusterConfig.MinIOProvider)
+	serviceDef, err := buildServiceFromFDL(selected, clusterName, clusterCfg, clusterConfig.MinIOProvider)
 	if err != nil {
 		return err
-	}
-
-	if strings.TrimSpace(opts.envFile) != "" {
-		envFileValues, err := service.ReadEnvFile(opts.envFile)
-		if err != nil {
-			return err
-		}
-		service.ApplyEnvFileValuesToService(serviceDef, envFileValues)
-	}
-
-	if opts.name != "" {
-		overrideServiceName(serviceDef, opts.name)
 	}
 
 	action := "Creating"
@@ -140,6 +186,7 @@ func makeHubDeployCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&opts.name, "name", "n", "", "override the OSCAR service and primary bucket names during deployment")
 	cmd.Flags().StringVar(&opts.localPath, "local-path", "", "use a local directory containing the RO-Crate metadata instead of fetching it from GitHub")
 	cmd.Flags().StringVar(&opts.envFile, "env-file", "", "load environment variables and secrets from a dotenv file")
+	cmd.Flags().BoolVar(&opts.preview, "preview", false, "show the resolved service FDL in YAML (secrets redacted) without accessing a cluster")
 	cmd.Flags().StringP("cluster", "c", "", "set the cluster")
 
 	if flag := cmd.Flags().Lookup("api-base"); flag != nil {
