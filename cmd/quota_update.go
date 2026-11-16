@@ -39,10 +39,14 @@ func quotaUpdateFunc(cmd *cobra.Command, args []string) error {
 
 	cpu, _ := cmd.Flags().GetString("cpu")
 	memory, _ := cmd.Flags().GetString("memory")
+	ephemeral, _ := cmd.Flags().GetString("ephemeral-storage")
+	gpu, _ := cmd.Flags().GetString("gpu")
 	volDisk, _ := cmd.Flags().GetString("volume-disk")
 	volCount, _ := cmd.Flags().GetString("volume-count")
 	volMaxDisk, _ := cmd.Flags().GetString("volume-max-disk")
 	volMinDisk, _ := cmd.Flags().GetString("volume-min-disk")
+	minioBuckets, _ := cmd.Flags().GetString("minio-buckets")
+	minioPerBucket, _ := cmd.Flags().GetString("minio-storage-per-bucket")
 
 	var volUpdate *types.VolumeQuotaUpdate
 	if volDisk != "" || volCount != "" || volMaxDisk != "" || volMinDisk != "" {
@@ -54,7 +58,27 @@ func quotaUpdateFunc(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	quota, err := cluster.UpdateQuota(conf.Oscar[clusterName], args[0], cpu, memory, volUpdate)
+	var minioUpdate *types.MinIOQuotaUpdate
+	if minioBuckets != "" || minioPerBucket != "" {
+		minioUpdate = &types.MinIOQuotaUpdate{
+			Buckets:          minioBuckets,
+			StoragePerBucket: minioPerBucket,
+		}
+	}
+
+	// CPU, memory and ephemeral storage are always serialized ("" means no
+	// change, matching the existing wire behavior); GPU and the nested
+	// objects are only sent when provided.
+	quotaReq := &types.QuotaUpdateRequest{
+		CPU:              cpu,
+		Memory:           memory,
+		EphemeralStorage: ephemeral,
+		GPU:              gpu,
+		Volumes:          volUpdate,
+		MinIO:            minioUpdate,
+	}
+
+	quota, err := cluster.UpdateQuota(conf.Oscar[clusterName], args[0], quotaReq)
 	if err != nil {
 		return err
 	}
@@ -79,10 +103,14 @@ func makeQuotaUpdateCmd() *cobra.Command {
 
 	cmd.Flags().String("cpu", "", "CPU quota (e.g. '2', '500m')")
 	cmd.Flags().String("memory", "", "memory quota (e.g. '2Gi', '512Mi')")
+	cmd.Flags().String("ephemeral-storage", "", "ephemeral storage quota in bytes (e.g. '10Gi')")
+	cmd.Flags().String("gpu", "", "GPU quota (e.g. '2')")
 	cmd.Flags().String("volume-disk", "", "volume disk quota")
 	cmd.Flags().String("volume-count", "", "volume count quota")
 	cmd.Flags().String("volume-max-disk", "", "max disk per volume")
 	cmd.Flags().String("volume-min-disk", "", "min disk per volume")
+	cmd.Flags().String("minio-buckets", "", "minio buckets count (e.g. '5')")
+	cmd.Flags().String("minio-storage-per-bucket", "", "minio max storage per bucket (e.g. '1Gi')")
 
 	return cmd
 }

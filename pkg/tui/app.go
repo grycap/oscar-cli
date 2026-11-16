@@ -1313,7 +1313,13 @@ func (s *uiState) performUpdateQuota(cfg *cluster.Cluster, uid, cpu, mem, volDis
 		}
 	}
 
-	go func(name, userID, cpuVal, memVal string, vu *types.VolumeQuotaUpdate, clusterCfg *cluster.Cluster) {
+	quotaReq := &types.QuotaUpdateRequest{
+		CPU:     cpu,
+		Memory:  mem,
+		Volumes: volUpdate,
+	}
+
+	go func(name string, userID string, req *types.QuotaUpdateRequest, clusterCfg *cluster.Cluster) {
 		defer func() {
 			if r := recover(); r != nil {
 				errMsg := fmt.Sprintf("unexpected error: %v", r)
@@ -1323,7 +1329,7 @@ func (s *uiState) performUpdateQuota(cfg *cluster.Cluster, uid, cpu, mem, volDis
 				})
 			}
 		}()
-		quota, err := cluster.UpdateQuota(clusterCfg, userID, cpuVal, memVal, vu)
+		quota, err := cluster.UpdateQuota(clusterCfg, userID, req)
 		if err != nil {
 			s.setStatus(fmt.Sprintf("[red]Failed to update quota for %q: %v", userID, err))
 			s.queueUpdate(func() {
@@ -1336,7 +1342,7 @@ func (s *uiState) performUpdateQuota(cfg *cluster.Cluster, uid, cpu, mem, volDis
 		s.queueUpdate(func() {
 			s.detailsView.SetText(text)
 		})
-	}(clusterName, uid, cpu, mem, volUpdate, cfg)
+	}(clusterName, uid, quotaReq, cfg)
 }
 
 func (s *uiState) showServiceDeploymentStatus(ctx context.Context) {
