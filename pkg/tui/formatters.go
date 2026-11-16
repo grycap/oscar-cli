@@ -356,6 +356,23 @@ func formatQuota(name string, quota *types.QuotaResponse) string {
 		}
 	}
 
+	if m := quota.MinIO; m != nil {
+		builder.WriteString("\n[yellow]MinIO[-]\n")
+		colorUsed := "[green]"
+		if m.Buckets.Max > 0 && m.Buckets.Used >= m.Buckets.Max {
+			colorUsed = "[red]"
+		} else if m.Buckets.Max > 0 && m.Buckets.Used > m.Buckets.Max/2 {
+			colorUsed = "[yellow]"
+		}
+		fmt.Fprintf(builder, "  Buckets: %s%d[-] / %s%d[-]\n", colorUsed, m.Buckets.Used, "[green]", m.Buckets.Max)
+		if m.StoragePerBucket.Max != "" {
+			fmt.Fprintf(builder, "  Storage/Bucket: %s\n", m.StoragePerBucket.Max)
+		}
+		if m.StorageTotal.Used != "" {
+			fmt.Fprintf(builder, "  Storage Total: %s\n", m.StorageTotal.Used)
+		}
+	}
+
 	return strings.TrimRight(builder.String(), "\n")
 }
 

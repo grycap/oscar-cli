@@ -70,13 +70,22 @@ func GetQuota(c *Cluster, userID string) (*types.QuotaResponse, error) {
 }
 
 // UpdateQuota updates the quota for the specified user.
-func UpdateQuota(c *Cluster, userID, cpu, memory string, volumes *types.VolumeQuotaUpdate) (*types.QuotaResponse, error) {
+//
+// The request fields map one-to-one to the JSON body sent to the API.
+// Fields that are zero-valued (empty strings, nil pointers) are not
+// modified on the server; empty values for CPU, memory and ephemeral
+// storage are always serialized because the API contract does not mark
+// them omitempty.
+func UpdateQuota(c *Cluster, userID string, req *types.QuotaUpdateRequest) (*types.QuotaResponse, error) {
 	if c == nil {
 		return nil, errors.New("cluster configuration not provided")
 	}
 	trimmed := strings.TrimSpace(userID)
 	if trimmed == "" {
 		return nil, errors.New("user ID is required")
+	}
+	if req == nil {
+		req = &types.QuotaUpdateRequest{}
 	}
 
 	endpoint, err := url.Parse(c.Endpoint)
@@ -85,29 +94,23 @@ func UpdateQuota(c *Cluster, userID, cpu, memory string, volumes *types.VolumeQu
 	}
 	endpoint.Path = path.Join(endpoint.Path, quotasPath, trimmed)
 
-	reqBody := types.QuotaUpdateRequest{
-		CPU:     cpu,
-		Memory:  memory,
-		Volumes: volumes,
-	}
-
-	bodyBytes, err := json.Marshal(reqBody)
+	bodyBytes, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("cannot encode quota request: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPut, endpoint.String(), bytes.NewReader(bodyBytes))
+	httpReq, err := http.NewRequest(http.MethodPut, endpoint.String(), bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, ErrMakingRequest
 	}
-	req.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Type", "application/json")
 
 	client, err := c.GetClientSafe()
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := client.Do(req)
+	res, err := client.Do(httpReq)
 	if err != nil {
 		return nil, ErrSendingRequest
 	}
